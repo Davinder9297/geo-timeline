@@ -12,6 +12,8 @@ export class InlineTimelineRebuildQueue implements TimelineRebuildQueue {
   ) {}
 
   async enqueueRebuild(attendanceId: string): Promise<void> {
-    await this.timelineCalculatorService.calculateAndUpsertSummary(attendanceId);
+    await this.timelineCalculatorService.calculateAndUpsertSummary(
+      attendanceId,
+    );
   }
 }

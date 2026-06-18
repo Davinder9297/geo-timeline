@@ -1,4 +1,12 @@
-import { Controller, Post, Body, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  UseGuards,
+  Request,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { AuthService, EmployeeResponse } from './auth.service';
 import { LoginDto, CreateEmployeeDto } from './dto/auth.dto';
 import { JwtAuthGuard, AuthenticatedUser } from './guards/jwt-auth.guard';
@@ -16,6 +24,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @HttpCode(HttpStatus.OK)
   async login(@Body() loginDto: LoginDto): Promise<{
     accessToken: string;
     employee: EmployeeResponse;
@@ -25,7 +34,9 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Post('me')
-  async getMe(@Request() req: { user: AuthenticatedUser }): Promise<{ user: AuthenticatedUser }> {
+  async getMe(
+    @Request() req: { user: AuthenticatedUser },
+  ): Promise<{ user: AuthenticatedUser }> {
     return { user: req.user };
   }
 }

@@ -57,8 +57,19 @@ export interface TimelineSummary {
   lastComputedAt: string;
 }
 
+export interface AttendanceDaily {
+  _id: string;
+  companyId: string;
+  employeeId: string;
+  attendanceDate: string;
+  status: string;
+  firstCheckInAt: string;
+  finalCheckOutAt?: string;
+  trackingStoppedAt?: string;
+}
+
 export interface TimelineResponse {
-  attendance: any;
+  attendance: AttendanceDaily;
   rawPointsCount: number;
   summaryAvailable: boolean;
   processedRoute?: {

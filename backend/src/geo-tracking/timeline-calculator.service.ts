@@ -191,7 +191,10 @@ export class TimelineCalculatorService {
       const prev = updatedPoints[i - 1];
       const curr = updatedPoints[i];
 
-      if (prev.quality === PointQuality.GOOD && curr.quality === PointQuality.GOOD) {
+      if (
+        prev.quality === PointQuality.GOOD &&
+        curr.quality === PointQuality.GOOD
+      ) {
         const distance = this.haversineDistance(
           prev.latitude,
           prev.longitude,
@@ -387,7 +390,9 @@ export class TimelineCalculatorService {
 
     // Calculate GPS quality score
     const totalPoints = points.length;
-    const goodPoints = points.filter((p) => p.quality === PointQuality.GOOD).length;
+    const goodPoints = points.filter(
+      (p) => p.quality === PointQuality.GOOD,
+    ).length;
     const totalSessionSeconds = workingSeconds + breakSeconds;
 
     let score = 0;
@@ -499,17 +504,13 @@ export class TimelineCalculatorService {
     );
 
     // Step 6: Detect impossible jumps
-    const {
-      points: pointsWithJumpsDetected,
-      impossibleJumpSegments,
-    } = this.detectImpossibleJumps(processedPoints, config.maxSpeedMps);
+    const { points: pointsWithJumpsDetected, impossibleJumpSegments } =
+      this.detectImpossibleJumps(processedPoints, config.maxSpeedMps);
     processedPoints = pointsWithJumpsDetected;
 
     // Step 7: Calculate distances
-    const { rawDistanceMeters, processedDistanceMeters } = this.calculateDistances(
-      processedPoints,
-      impossibleJumpSegments,
-    );
+    const { rawDistanceMeters, processedDistanceMeters } =
+      this.calculateDistances(processedPoints, impossibleJumpSegments);
 
     // Step 8: Detect stops
     const stops = this.detectStops(
@@ -519,10 +520,8 @@ export class TimelineCalculatorService {
     );
 
     // Step 10: Detect data gaps
-    const { anomalies: dataGaps, pointsWithEstimatedFlag } = this.detectDataGaps(
-      processedPoints,
-      config.gapDurationSeconds,
-    );
+    const { anomalies: dataGaps, pointsWithEstimatedFlag } =
+      this.detectDataGaps(processedPoints, config.gapDurationSeconds);
     processedPoints = pointsWithEstimatedFlag;
 
     // Step 11: Calculate aggregate totals
@@ -575,13 +574,10 @@ export class TimelineCalculatorService {
       );
 
     // Broadcast timeline recomputed
-    this.locationBroadcastService.broadcastTimelineRecomputed(
+    this.locationBroadcastService.broadcastTimelineRecomputed(attendanceId, {
       attendanceId,
-      {
-        attendanceId,
-        employeeId: attendance.employeeId,
-        lastComputedAt: new Date(),
-      },
-    );
+      employeeId: attendance.employeeId,
+      lastComputedAt: new Date(),
+    });
   }
 }

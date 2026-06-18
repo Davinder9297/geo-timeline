@@ -8,12 +8,21 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ConfigService } from '@nestjs/config';
-import { AttendanceDaily, AttendanceStatus } from './schemas/attendance-daily.schema';
+import {
+  AttendanceDaily,
+  AttendanceStatus,
+} from './schemas/attendance-daily.schema';
 import { LocationPoint, PointQuality } from './schemas/location-point.schema';
-import { EmployeeLiveLocation, LiveLocationStatus } from './schemas/employee-live-location.schema';
+import {
+  EmployeeLiveLocation,
+  LiveLocationStatus,
+} from './schemas/employee-live-location.schema';
 import { AttendanceTimelineSummary } from './schemas/attendance-timeline-summary.schema';
 import { Employee } from './schemas/employee.schema';
-import { LocationPointDto } from './dto/batch-location-points.dto';
+import {
+  LocationPointDto,
+  BatchLocationPointsResult,
+} from './dto/batch-location-points.dto';
 import { TimelineRebuildQueue } from './queues/timeline-rebuild.queue';
 import { AuthenticatedUser } from './guards/jwt-auth.guard';
 import { LocationBroadcastService } from './location-broadcast.service';
@@ -40,15 +49,16 @@ export class GeoTrackingService {
   async getEmployeeAttendances(
     user: AuthenticatedUser,
   ): Promise<AttendanceDaily[]> {
-    return this.attendanceDailyModel.find({
-      companyId: user.companyId,
-      employeeId: user.employeeId,
-    }).sort({ attendanceDate: -1 }).lean();
+    return this.attendanceDailyModel
+      .find({
+        companyId: user.companyId,
+        employeeId: user.employeeId,
+      })
+      .sort({ attendanceDate: -1 })
+      .lean();
   }
 
-  async createAttendance(
-    user: AuthenticatedUser,
-  ): Promise<AttendanceDaily> {
+  async createAttendance(user: AuthenticatedUser): Promise<AttendanceDaily> {
     const today = new Date().toISOString().split('T')[0];
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -70,11 +80,13 @@ export class GeoTrackingService {
       timezone,
       status: AttendanceStatus.WORKING,
       firstCheckInAt: new Date(),
-      sessions: [{
-        sessionId,
-        checkInAt: new Date(),
-        breaks: [],
-      }],
+      sessions: [
+        {
+          sessionId,
+          checkInAt: new Date(),
+          breaks: [],
+        },
+      ],
     });
 
     await attendance.save();
@@ -84,7 +96,7 @@ export class GeoTrackingService {
   async checkOutAttendance(
     attendanceId: string,
     user: AuthenticatedUser,
-  ): Promise<void> {
+  ): Promise<AttendanceDaily> {
     const attendance = await this.attendanceDailyModel.findById(attendanceId);
     if (!attendance) {
       throw new NotFoundException('Attendance not found');
@@ -107,15 +119,36 @@ export class GeoTrackingService {
       lastSession.checkOutAt = new Date();
     }
 
-    await this.attendanceDailyModel.findByIdAndUpdate(attendanceId, {
-      $set: {
-        finalCheckOutAt: new Date(),
-        status: AttendanceStatus.CHECKED_OUT,
-        sessions: attendance.sessions,
+    const updatedAttendance = await this.attendanceDailyModel.findByIdAndUpdate(
+      attendanceId,
+      {
+        $set: {
+          finalCheckOutAt: new Date(),
+          status: AttendanceStatus.CHECKED_OUT,
+          sessions: attendance.sessions,
+        },
       },
-    });
+      { new: true },
+    );
+
+    if (!updatedAttendance) {
+      throw new NotFoundException('Attendance not found');
+    }
+
+    // Update live location status to CHECKED_OUT
+    await this.employeeLiveLocationModel.findOneAndUpdate(
+      { companyId: user.companyId, employeeId: user.employeeId },
+      {
+        $set: {
+          status: LiveLocationStatus.CHECKED_OUT,
+          lastUpdatedAt: new Date(),
+        },
+      },
+    );
 
     await this.timelineRebuildQueue.enqueueRebuild(attendanceId);
+
+    return updatedAttendance;
   }
 
   async getTrackingConfig(
@@ -160,13 +193,11 @@ export class GeoTrackingService {
     deviceId: string,
     points: LocationPointDto[],
     user: AuthenticatedUser,
-  ): Promise<{
-    accepted: number;
-    duplicates: number;
-    rejected: number;
-    lastAcceptedSequenceNo: number;
-  }> {
-    const maxBatchSize = this.configService.get<number>('geoTracking.maxBatchSize', 200);
+  ): Promise<BatchLocationPointsResult> {
+    const maxBatchSize = this.configService.get<number>(
+      'geoTracking.maxBatchSize',
+      200,
+    );
     if (points.length > maxBatchSize) {
       throw new BadRequestException(
         `Batch size exceeds maximum of ${maxBatchSize}`,
@@ -289,6 +320,7 @@ export class GeoTrackingService {
     }
 
     let savedPoints: any[] = [];
+    let lastUpdatedAt: Date | null = null;
     if (pointsToInsert.length > 0) {
       savedPoints = await this.locationPointModel.insertMany(pointsToInsert);
 
@@ -337,6 +369,8 @@ export class GeoTrackingService {
               { upsert: true, new: true },
             );
 
+          lastUpdatedAt = updatedLiveLocation.lastUpdatedAt;
+
           // Broadcast location update
           this.locationBroadcastService.broadcastEmployeeLocationUpdate(
             user.companyId,
@@ -349,7 +383,7 @@ export class GeoTrackingService {
               },
               status,
               isStale: false,
-              lastUpdatedAt: new Date(),
+              lastUpdatedAt: updatedLiveLocation.lastUpdatedAt,
             },
           );
 
@@ -367,6 +401,36 @@ export class GeoTrackingService {
           }
         }
       }
+    } else {
+      // Even if no new points, update lastUpdatedAt to prevent stale status
+      const existingLiveLocation =
+        await this.employeeLiveLocationModel.findOneAndUpdate(
+          {
+            companyId: user.companyId,
+            employeeId: user.employeeId,
+          },
+          {
+            $set: {
+              isStale: false,
+              lastUpdatedAt: new Date(),
+            },
+          },
+          { new: true },
+        );
+      lastUpdatedAt = existingLiveLocation?.lastUpdatedAt || null;
+
+      // Broadcast status update to refresh admin dashboard
+      if (existingLiveLocation) {
+        this.locationBroadcastService.broadcastEmployeeStatusUpdate(
+          user.companyId,
+          user.employeeId,
+          {
+            employeeId: user.employeeId,
+            isStale: false,
+            status: existingLiveLocation.status,
+          },
+        );
+      }
     }
 
     return {
@@ -375,6 +439,7 @@ export class GeoTrackingService {
       rejected,
       lastAcceptedSequenceNo:
         lastAcceptedSequenceNo === -1 ? 0 : lastAcceptedSequenceNo,
+      lastUpdatedAt,
     };
   }
 
@@ -406,14 +471,16 @@ export class GeoTrackingService {
   async getLiveEmployees(
     companyId: string,
     status?: LiveLocationStatus,
-  ): Promise<{
-    employeeId: string;
-    name: string;
-    status: LiveLocationStatus;
-    isStale: boolean;
-    lastLocation: { latitude: number; longitude: number };
-    lastUpdatedAt: Date;
-  }[]> {
+  ): Promise<
+    {
+      employeeId: string;
+      name: string;
+      status: LiveLocationStatus;
+      isStale: boolean;
+      lastLocation: { latitude: number; longitude: number };
+      lastUpdatedAt: Date;
+    }[]
+  > {
     const staleThresholdMinutes = this.configService.get<number>(
       'geoTracking.staleThresholdMinutes',
       5,
@@ -487,7 +554,7 @@ export class GeoTrackingService {
       attendanceId: attendanceIdString,
     });
 
-    let summaryAvailable = !!summary;
+    const summaryAvailable = !!summary;
     let processedRoute = null;
     let totals = null;
     let timelineEvents = null;
@@ -532,7 +599,9 @@ export class GeoTrackingService {
       throw new NotFoundException('Attendance not found');
     }
     if (attendance.companyId !== companyId) {
-      throw new ForbiddenException('Attendance does not belong to this company');
+      throw new ForbiddenException(
+        'Attendance does not belong to this company',
+      );
     }
 
     await this.timelineRebuildQueue.enqueueRebuild(attendanceId);

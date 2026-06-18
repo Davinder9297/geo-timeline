@@ -29,7 +29,7 @@ export const loadUser = (): UserState | null => {
   if (user) {
     try {
       return JSON.parse(user);
-    } catch (e) {
+    } catch {
       return null;
     }
   }
@@ -52,7 +52,7 @@ export const loadQueue = (): LocationPointDto[] => {
   if (queue) {
     try {
       return JSON.parse(queue);
-    } catch (e) {
+    } catch {
       return [];
     }
   }

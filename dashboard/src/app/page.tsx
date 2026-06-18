@@ -14,11 +14,16 @@ export default function DashboardPage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && !user) {
-      console.log("[DashboardPage] No user, redirecting to login...");
-      router.push("/login");
+    if (!isLoading) {
+      if (!user) {
+        console.log("[DashboardPage] No user, redirecting to login...");
+        router.push("/login");
+      } else if (user.role !== "ADMIN" && user.role !== "MANAGER") {
+        console.log("[DashboardPage] User does not have permission, logging out...");
+        logout();
+      }
     }
-  }, [user, router, isLoading]);
+  }, [user, router, isLoading, logout]);
 
   if (isLoading) {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;

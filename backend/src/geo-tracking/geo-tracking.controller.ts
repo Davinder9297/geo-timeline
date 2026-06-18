@@ -37,8 +37,8 @@ export class GeoTrackingController {
     @Param('attendanceId') attendanceId: string,
     @Request() req: RequestWithUser,
   ) {
-    await this.geoTrackingService.checkOutAttendance(attendanceId, req.user);
-    return { success: true };
+    const data = await this.geoTrackingService.checkOutAttendance(attendanceId, req.user);
+    return { success: true, data };
   }
 
   @Post(':attendanceId/location/start')

@@ -31,8 +31,8 @@ export default function LoginPage() {
 
     try {
       await login(companyId, employeeId, password);
-    } catch (err) {
-      setError("Invalid credentials, please try again.");
+    } catch (err: any) {
+      setError(err.message || "Invalid credentials, please try again.");
     } finally {
       setLoading(false);
     }

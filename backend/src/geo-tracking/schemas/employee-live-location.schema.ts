@@ -50,7 +50,11 @@ export class EmployeeLiveLocation extends Document {
   lastUpdatedAt: Date;
 }
 
-export const EmployeeLiveLocationSchema = SchemaFactory.createForClass(EmployeeLiveLocation);
+export const EmployeeLiveLocationSchema =
+  SchemaFactory.createForClass(EmployeeLiveLocation);
 
 EmployeeLiveLocationSchema.index({ companyId: 1, status: 1 });
-EmployeeLiveLocationSchema.index({ companyId: 1, employeeId: 1 }, { unique: true });
+EmployeeLiveLocationSchema.index(
+  { companyId: 1, employeeId: 1 },
+  { unique: true },
+);

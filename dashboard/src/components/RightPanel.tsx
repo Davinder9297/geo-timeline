@@ -71,7 +71,7 @@ export const RightPanel = () => {
             <div className="mb-3 font-medium text-yellow-800">Timeline not yet calculated</div>
             {timeline.attendance && (
               <button
-                onClick={() => rebuildTimeline(timeline.attendance.attendanceId)}
+                onClick={() => rebuildTimeline(timeline.attendance._id)}
                 className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
               >
                 Rebuild Timeline

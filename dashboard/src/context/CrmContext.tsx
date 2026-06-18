@@ -13,7 +13,6 @@ import { io, Socket } from "socket.io-client";
 import type {
   LiveEmployee,
   TimelineResponse,
-  LiveLocationStatus,
 } from "../types";
 import { CONFIG } from "../config";
 import { useAuth } from "./AuthContext";

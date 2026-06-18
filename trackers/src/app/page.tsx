@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useTracker } from "@/context/TrackerContext";
 import type { AttendanceDaily } from "@/types";
 
@@ -22,6 +22,8 @@ export default function Home() {
     checkOutAttendance,
     isCreatingAttendance,
     isCheckingOut,
+    totalDistance,
+    isHydrated,
   } = useTracker();
 
   const [employeeId, setEmployeeId] = useState("emp-001");
@@ -37,7 +39,7 @@ export default function Home() {
 
     try {
       await login(companyId, employeeId, password);
-    } catch (err) {
+    } catch {
       setError("Invalid credentials, please try again.");
     } finally {
       setLoading(false);
@@ -62,15 +64,18 @@ export default function Home() {
     }
   };
 
-  const handleSelectAttendance = (attendance: AttendanceDaily) => {
-    if (attendance.finalCheckOutAt) return;
-    setSelectedAttendance(attendance);
-    const newUser = { ...user!, attendanceId: attendance._id };
-    login(newUser.companyId, newUser.employeeId, "");
-  };
-
   const today = new Date().toISOString().split('T')[0];
   const todayAttendance = attendances?.find(a => a.attendanceDate === today && !a.finalCheckOutAt);
+
+  // Wait for hydration
+  if (!isHydrated) {
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <h1 className="text-2xl font-bold text-center mb-6">Geo Tracker Client</h1>
+        <div className="text-center text-gray-500">Loading...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto p-6">
@@ -149,6 +154,7 @@ export default function Home() {
           ) : selectedAttendance || user.attendanceId ? (
             <div className="space-y-4">
               <div className="bg-gray-50 p-4 rounded-md">
+                {/* eslint-disable-next-line react/no-unescaped-entities */}
                 <h3 className="font-semibold mb-2">Today's Attendance</h3>
                 <p><strong>Date:</strong> {new Date((selectedAttendance || todayAttendance)?.attendanceDate || today).toLocaleDateString()}</p>
                 <p><strong>Check In At:</strong> {new Date((selectedAttendance || todayAttendance)?.firstCheckInAt || "").toLocaleString()}</p>
@@ -191,6 +197,7 @@ export default function Home() {
             <p><strong>Tracking State:</strong> {trackingState}</p>
             <p><strong>Queued Points:</strong> {queue.length}</p>
             <p><strong>Last Sync:</strong> {lastSyncTime ? lastSyncTime.toLocaleString() : "Never"}</p>
+            <p><strong>Total Distance Moved:</strong> {totalDistance.toFixed(2)} meters</p>
             {lastError && (
               <p className="text-red-600 mt-2"><strong>Last Error:</strong> {lastError}</p>
             )}

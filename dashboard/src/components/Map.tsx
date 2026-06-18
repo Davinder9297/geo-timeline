@@ -4,9 +4,15 @@ import React, { useEffect, useRef, useState } from "react";
 import { MarkerClusterer } from "@googlemaps/markerclusterer";
 import { CONFIG } from "@/config";
 import { useCrm } from "@/context/CrmContext";
-import type { LiveEmployee } from "@/types";
 import { LiveLocationStatus } from "@/types";
 import { decodePolyline } from "@/utils";
+
+declare global {
+  interface Window {
+    gm_authFailure?: () => void;
+    initGoogleMaps?: () => void;
+  }
+}
 
 const getMarkerColor = (status: LiveLocationStatus, isStale: boolean) => {
   if (isStale) return "#9E9E9E";
@@ -41,7 +47,7 @@ export const Map = () => {
       console.log("[Map] API Key from config:", CONFIG.GOOGLE_MAPS_API_KEY ? `${CONFIG.GOOGLE_MAPS_API_KEY.substring(0, 10)}...` : "NOT SET");
       
       // Use new @googlemaps/js-api-loader API
-      (window as any).gm_authFailure = () => {
+      window.gm_authFailure = () => {
         console.error("[Map] Google Maps auth failed");
       };
 
@@ -52,7 +58,7 @@ export const Map = () => {
         const scriptUrl = `https://maps.googleapis.com/maps/api/js?key=${CONFIG.GOOGLE_MAPS_API_KEY}&libraries=geometry,marker&loading=async&callback=initGoogleMaps`;
         console.log("[Map] Loading Google Maps script from:", scriptUrl);
         script.src = scriptUrl;
-        (window as any).initGoogleMaps = () => {
+        window.initGoogleMaps = () => {
           console.log("[Map] Google Maps loaded successfully!");
           if (mapRef.current) {
             const map = new google.maps.Map(mapRef.current, {
@@ -91,7 +97,7 @@ export const Map = () => {
       markerElement.style.height = "20px";
       markerElement.style.borderRadius = "50%";
       markerElement.style.backgroundColor = getMarkerColor(emp.status, emp.isStale);
-      markerElement.style.opacity = emp.isStale ? 0.5 : 1;
+      markerElement.style.opacity = emp.isStale ? "0.5" : "1";
       markerElement.style.border = "2px solid white";
       markerElement.title = emp.name;
 

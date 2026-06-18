@@ -34,7 +34,17 @@ import type {
   AttendanceDaily,
   GetAttendancesResponse,
   CreateAttendanceResponse,
+  CheckOutAttendanceResponse,
 } from "../types";
+
+declare global {
+  interface Navigator {
+    connection?: {
+      effectiveType?: string;
+    };
+    getBattery?: () => Promise<{ level: number }>;
+  }
+}
 
 interface TrackerContextType {
   user: UserState | null;
@@ -57,6 +67,8 @@ interface TrackerContextType {
   checkOutAttendance: () => Promise<void>;
   isCreatingAttendance: boolean;
   isCheckingOut: boolean;
+  totalDistance: number; // Total distance moved in meters
+  isHydrated: boolean;
 }
 
 const TrackerContext = createContext<TrackerContextType | undefined>(undefined);
@@ -67,14 +79,7 @@ export const TrackerProvider = ({
   children: React.ReactNode;
 }) => {
   const queryClient = useQueryClient();
-  const [user, setUser] = useState<UserState | null>(null);
-  const [trackingState, setTrackingState] = useState<
-    "idle" | "active" | "stopped"
-  >("idle");
-  const [queue, setQueue] = useState<LocationPointDto[]>([]);
-  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
-  const [lastError, setLastError] = useState<string | null>(null);
-  const [selectedAttendance, setSelectedAttendance] = useState<AttendanceDaily | undefined>();
+  // Declare refs FIRST
   const watcherRef = useRef<number | null>(null);
   const sequenceRef = useRef<number>(0);
   const lastLocationRef = useRef<{ lat: number; lon: number } | null>(null);
@@ -85,6 +90,17 @@ export const TrackerProvider = ({
   const queueRef = useRef<LocationPointDto[]>([]);
   const isUploadingRef = useRef(false); // New ref to track upload status
   const currentChunkRef = useRef<LocationPointDto[]>([]); // Ref to track current chunk being sent
+
+  const [user, setUser] = useState<UserState | null>(null);
+  const [trackingState, setTrackingState] = useState<
+    "idle" | "active" | "stopped"
+  >("idle");
+  const [queue, setQueue] = useState<LocationPointDto[]>([]);
+  const [isHydrated, setIsHydrated] = useState(false); // Track hydration state
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [selectedAttendance, setSelectedAttendance] = useState<AttendanceDaily | undefined>();
+  const [totalDistance, setTotalDistance] = useState(0); // Total distance in meters
 
   // Keep refs updated
   useEffect(() => {
@@ -154,9 +170,12 @@ export const TrackerProvider = ({
         }
       );
       if (!response.ok) throw new Error("Failed to check out");
+      return await response.json() as CheckOutAttendanceResponse;
     },
-    onSuccess: async () => {
-      queryClient.invalidateQueries({ queryKey: ['attendances'] });
+    onSuccess: async (data) => {
+      queryClient.setQueryData(['attendances'], (old: AttendanceDaily[] | undefined) => 
+        old ? old.map(a => a._id === data.data._id ? data.data : a) : [data.data]
+      );
     }
   });
 
@@ -197,14 +216,15 @@ export const TrackerProvider = ({
 
   const uploadBatchMutation = useMutation({
     mutationFn: async (batch: BatchLocationPointsRequest) => {
-      if (!user || !user.attendanceId) throw new Error("No active attendance");
+      const currentUser = userRef.current;
+      if (!currentUser || !currentUser.attendanceId) throw new Error("No active attendance");
       const response = await fetch(
-        `${CONFIG.API_BASE_URL}/mobile/attendance/${user.attendanceId}/location-points/batch`,
+        `${CONFIG.API_BASE_URL}/mobile/attendance/${currentUser.attendanceId}/location-points/batch`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${user.token}`,
+            Authorization: `Bearer ${currentUser.token}`,
           },
           body: JSON.stringify(batch),
         }
@@ -216,26 +236,31 @@ export const TrackerProvider = ({
       isUploadingRef.current = true;
     },
     onSuccess: (data) => {
-      setLastSyncTime(new Date());
+      if (data.data.lastUpdatedAt) {
+        setLastSyncTime(new Date(data.data.lastUpdatedAt));
+      }
       setLastError(null);
       retryBackoffRef.current = 1000;
       const lastAccepted = data.data.lastAcceptedSequenceNo;
       
-      // First, try to filter by sequence number > lastAccepted
-      let newQueue = queueRef.current.filter((p) => p.sequenceNo > lastAccepted);
-      
-      // If the queue didn't change at all (meaning none of the points in the current chunk were accepted),
-      // then just remove the current chunk (they're duplicates or rejected)
-      if (newQueue.length === queueRef.current.length && currentChunkRef.current.length > 0) {
-        // Remove the first MAX_BATCH_SIZE points (the current chunk)
-        newQueue = queueRef.current.slice(currentChunkRef.current.length);
-      }
-      
-      setQueue(newQueue);
-      queueRef.current = newQueue;
-      // If there are still points left, flush again
-      if (newQueue.length > 0 && !isUploadingRef.current) {
-        flushQueue();
+      // Only process queue if we actually sent a chunk with points
+      if (currentChunkRef.current.length > 0) {
+        // First, try to filter by sequence number > lastAccepted
+        let newQueue = queueRef.current.filter((p) => p.sequenceNo > lastAccepted);
+        
+        // If the queue didn't change at all (meaning none of the points in the current chunk were accepted),
+        // then just remove the current chunk (they're duplicates or rejected)
+        if (newQueue.length === queueRef.current.length) {
+          // Remove the first MAX_BATCH_SIZE points (the current chunk)
+          newQueue = queueRef.current.slice(currentChunkRef.current.length);
+        }
+        
+        setQueue(newQueue);
+        queueRef.current = newQueue;
+        // If there are still points left, flush again
+        if (newQueue.length > 0 && !isUploadingRef.current) {
+          flushQueue();
+        }
       }
     },
     onError: (error) => {
@@ -264,9 +289,9 @@ export const TrackerProvider = ({
     }, retryBackoffRef.current);
   };
 
-  const flushQueue = useCallback(() => {
+  const flushQueue = useCallback((sendEmpty: boolean = false) => {
     const currentUser = userRef.current;
-    if (!currentUser || !currentUser.attendanceId || queueRef.current.length === 0 || isUploadingRef.current) return;
+    if (!currentUser || !currentUser.attendanceId || (queueRef.current.length === 0 && !sendEmpty) || isUploadingRef.current) return;
     const chunk = queueRef.current.slice(0, MAX_BATCH_SIZE);
     currentChunkRef.current = chunk;
     const batch: BatchLocationPointsRequest = {
@@ -299,8 +324,8 @@ export const TrackerProvider = ({
 
   const getNetworkType = (): string => {
     if ("connection" in navigator) {
-      const conn = (navigator as any).connection;
-      return conn.effectiveType || "UNKNOWN";
+      const conn = navigator.connection;
+      return conn?.effectiveType || "UNKNOWN";
     }
     return "UNKNOWN";
   };
@@ -308,9 +333,9 @@ export const TrackerProvider = ({
   const getBatteryPercent = async (): Promise<number> => {
     if ("getBattery" in navigator) {
       try {
-        const battery = await (navigator as any).getBattery();
+        const battery = await navigator.getBattery!();
         return Math.round(battery.level * 100);
-      } catch (e) {
+      } catch {
         return 50;
       }
     }
@@ -366,6 +391,19 @@ const addLocationToQueue = useCallback(async (
     isMocked: false,
   };
 
+  // Calculate and add distance if we have a previous point
+  if (lastLocationRef.current) {
+    const distance = haversineDistance(
+      lastLocationRef.current.lat,
+      lastLocationRef.current.lon,
+      latitude,
+      longitude
+    );
+    if (distance > 0) {
+      setTotalDistance((prev) => prev + distance);
+    }
+  }
+
   setQueue((prev) => [...prev, point]);
   queueRef.current = [...queueRef.current, point];
   lastLocationRef.current = { lat: latitude, lon: longitude };
@@ -373,7 +411,7 @@ const addLocationToQueue = useCallback(async (
   if (queueRef.current.length >= CONFIG.BATCH_SIZE) {
     flushQueue();
   }
-}, []);
+}, [flushQueue]);
 
   const getCurrentLocation = useCallback(() => {
     navigator.geolocation.getCurrentPosition(
@@ -382,12 +420,13 @@ const addLocationToQueue = useCallback(async (
         await addLocationToQueue(latitude, longitude, accuracy, speed || 0, heading || 0);
       },
       (error) => {
-        console.error("Get current location error:", error);
-        setLastError(`Get current location error: ${error.message}`);
+        console.warn("Get current location error:", error);
+        // Don't set a permanent error, just log it, since it might be a temporary timeout
+        // setLastError(`Get current location error: ${error.message}`);
       },
       {
         enableHighAccuracy: true,
-        timeout: 30000,
+        timeout: 60000, // Increase timeout to 60 seconds
         maximumAge: 30000,
       }
     );
@@ -404,8 +443,9 @@ const handlePosition = useCallback(
 );
 
   const handlePositionError = useCallback((error: GeolocationPositionError) => {
-    console.error("Geolocation error:", error);
-    setLastError(`Geolocation error: ${error.message}`);
+    console.warn("Geolocation error:", error);
+    // Don't set lastError for every geolocation error, since they can be frequent (timeouts, etc.)
+    // setLastError(`Geolocation error: ${error.message}`);
   }, []);
 
   const login = async (
@@ -447,6 +487,7 @@ const handlePosition = useCallback(
     setLastSyncTime(null);
     setLastError(null);
     setSelectedAttendance(undefined);
+    setTotalDistance(0); // Reset total distance
     stopWatcher();
     stopBatchInterval();
     stopStationaryInterval();
@@ -467,26 +508,27 @@ const handlePosition = useCallback(
         {
           enableHighAccuracy: true,
           maximumAge: 30000,
-          timeout: 30000,
+          timeout: 60000, // Increase timeout to 60 seconds
         }
       );
 
       batchIntervalRef.current = setInterval(() => {
-        flushQueue();
+        flushQueue(true); // Allow sending empty batches as heartbeat
       }, CONFIG.BATCH_INTERVAL_MS);
 
-      // Send periodic update every 5 minutes
+      // Send periodic update every 3 minutes (more frequent to prevent stale status)
       stationaryIntervalRef.current = setInterval(() => {
         getCurrentLocation();
-      }, 5 * 60 * 1000);
+      }, 3 * 60 * 1000);
     } catch (error) {
       setLastError(`Start tracking error: ${(error as Error).message}`);
     }
   };
 
   const stopTracking = async () => {
-    if (!user) return;
-    setTrackingState("stopped");
+    const currentUser = userRef.current;
+    if (!currentUser) return;
+    setTrackingState("idle"); // Reset to idle so we can start again
     stopWatcher();
     stopBatchInterval();
     stopStationaryInterval();
@@ -511,35 +553,34 @@ const handlePosition = useCallback(
     saveUser(newUser);
     setSelectedAttendance(undefined);
     setTrackingState("idle");
+    setTotalDistance(0); // Reset total distance on checkout
   };
 
-  // First useEffect (load saved state)
+  // Hydration effect: Load saved data after client-side mount
   useEffect(() => {
     const savedUser = loadUser();
     const savedQueue = loadQueue();
     const savedTrackingState = loadTrackingState();
-    if (savedUser && JSON.stringify(savedUser) !== JSON.stringify(user)) {
+    if (savedUser) {
       setUser(savedUser);
+      userRef.current = savedUser;
     }
     if (savedQueue.length > 0) {
       setQueue(savedQueue);
-      queueRef.current = savedQueue; // Update ref too
+      queueRef.current = savedQueue;
       const maxSeq = Math.max(...savedQueue.map((p) => p.sequenceNo));
       sequenceRef.current = maxSeq + 1;
     }
     setTrackingState(savedTrackingState);
+    setIsHydrated(true);
+  }, []);
 
+  // First useEffect (online listener only)
+  useEffect(() => {
     const handleOnline = () => {
       const currentUser = userRef.current;
-      const currentQueue = queueRef.current;
-      if (currentUser && currentUser.attendanceId && currentQueue.length > 0 && !isUploadingRef.current) {
-        const chunk = currentQueue.slice(0, MAX_BATCH_SIZE);
-        currentChunkRef.current = chunk;
-        const batch: BatchLocationPointsRequest = {
-          deviceId: getDeviceId(),
-          points: chunk,
-        };
-        uploadBatchMutation.mutate(batch);
+      if (currentUser && currentUser.attendanceId && !isUploadingRef.current) {
+        flushQueue(true);
       }
     };
     window.addEventListener("online", handleOnline);
@@ -547,12 +588,13 @@ const handlePosition = useCallback(
       window.removeEventListener("online", handleOnline);
       stopWatcher();
       stopBatchInterval();
+      stopStationaryInterval();
     };
-  }, []); // Empty dependency array - only run on mount!
+  }, [flushQueue]);
 
-  // Resume tracking if was active and we have a user
+  // Resume tracking if was active and we have a user (only after hydration)
   useEffect(() => {
-    if (trackingState === "active" && user && user.attendanceId) {
+    if (isHydrated && trackingState === "active" && user && user.attendanceId) {
       // Get current location immediately
       getCurrentLocation();
       
@@ -563,25 +605,25 @@ const handlePosition = useCallback(
         {
           enableHighAccuracy: true,
           maximumAge: 30000,
-          timeout: 30000,
+          timeout: 60000, // Increase timeout to 60 seconds
         }
       );
 
       batchIntervalRef.current = setInterval(() => {
-        flushQueue();
+        flushQueue(true); // Allow sending empty batches as heartbeat
       }, CONFIG.BATCH_INTERVAL_MS);
 
-      // Send periodic update every 5 minutes
+      // Send periodic update every 3 minutes (more frequent to prevent stale status)
       stationaryIntervalRef.current = setInterval(() => {
         getCurrentLocation();
-      }, 5 * 60 * 1000);
-    } else {
-      // Stop everything if not active
+      }, 3 * 60 * 1000);
+    } else if (isHydrated) {
+      // Stop everything if not active (only after hydration)
       stopWatcher();
       stopBatchInterval();
       stopStationaryInterval();
     }
-  }, [trackingState, user, handlePosition, handlePositionError, flushQueue, getCurrentLocation]);
+  }, [isHydrated, trackingState, user, handlePosition, handlePositionError, flushQueue, getCurrentLocation]);
 
   useEffect(() => {
     saveTrackingState(trackingState);
@@ -622,6 +664,8 @@ const handlePosition = useCallback(
         checkOutAttendance,
         isCreatingAttendance: createAttendanceMutation.isPending,
         isCheckingOut: checkOutAttendanceMutation.isPending,
+        totalDistance,
+        isHydrated,
       }}
     >
       {children}

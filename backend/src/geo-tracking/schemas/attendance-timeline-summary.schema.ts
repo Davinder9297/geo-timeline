@@ -69,6 +69,12 @@ export class AttendanceTimelineSummary extends Document {
   lastComputedAt: Date;
 }
 
-export const AttendanceTimelineSummarySchema = SchemaFactory.createForClass(AttendanceTimelineSummary);
+export const AttendanceTimelineSummarySchema = SchemaFactory.createForClass(
+  AttendanceTimelineSummary,
+);
 
-AttendanceTimelineSummarySchema.index({ companyId: 1, employeeId: 1, attendanceDate: 1 });
+AttendanceTimelineSummarySchema.index({
+  companyId: 1,
+  employeeId: 1,
+  attendanceDate: 1,
+});

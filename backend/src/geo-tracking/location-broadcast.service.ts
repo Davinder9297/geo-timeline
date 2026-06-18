@@ -35,6 +35,8 @@ export class LocationBroadcastService {
 
   broadcastTimelineRecomputed(attendanceId: string, data: any) {
     if (!this.server) return;
-    this.server.to(`attendance:${attendanceId}`).emit('timeline:recomputed', data);
+    this.server
+      .to(`attendance:${attendanceId}`)
+      .emit('timeline:recomputed', data);
   }
 }

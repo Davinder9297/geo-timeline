@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { CONFIG } from "@/config";
-import type { UserState, UserRole } from "../types";
+import { UserState, UserRole } from "../types";
 
 interface AuthContextType {
   user: UserState | null;
@@ -16,24 +16,30 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<UserState | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // Start with loading true
+  const [isHydrated, setIsHydrated] = useState(false);
   const router = useRouter();
 
+  // Hydration: Load from localStorage after client mount
   useEffect(() => {
-    console.log("[AuthContext] Checking for saved user...");
     const savedUser = localStorage.getItem("crm_user");
-    console.log("[AuthContext] Saved user found:", !!savedUser);
     if (savedUser) {
       try {
         const parsedUser = JSON.parse(savedUser);
-        console.log("[AuthContext] Parsed user:", parsedUser);
-        setUser(parsedUser);
+        // Check if user has valid role
+        if (parsedUser.role === UserRole.ADMIN || parsedUser.role === UserRole.MANAGER) {
+          setUser(parsedUser);
+        } else {
+          // Invalid role, remove from localStorage
+          localStorage.removeItem("crm_user");
+        }
       } catch (e) {
         console.error("[AuthContext] Failed to parse saved user:", e);
         localStorage.removeItem("crm_user");
       }
     }
     setIsLoading(false);
+    setIsHydrated(true);
   }, []);
 
   const login = async (companyId: string, employeeId: string, password: string) => {
@@ -56,6 +62,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       role: data.employee.role as UserRole,
       token: data.accessToken,
     };
+
+    // Check if user has admin or manager role
+    if (newUser.role !== UserRole.ADMIN && newUser.role !== UserRole.MANAGER) {
+      throw new Error("You do not have permission to access the dashboard");
+    }
 
     setUser(newUser);
     localStorage.setItem("crm_user", JSON.stringify(newUser));

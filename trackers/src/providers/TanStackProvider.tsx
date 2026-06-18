@@ -10,7 +10,14 @@ export function TanStackProvider({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 60 * 1000,
+            staleTime: 0, // Consider data always stale
+            gcTime: 0, // Garbage collect immediately (no cache)
+            refetchOnMount: true,
+            refetchOnReconnect: true,
+            refetchOnWindowFocus: true,
+          },
+          mutations: {
+            gcTime: 0, // No mutation cache either
           },
         },
       })

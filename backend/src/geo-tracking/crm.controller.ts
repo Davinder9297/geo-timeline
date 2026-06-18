@@ -11,10 +11,14 @@ import {
 import { GeoTrackingService } from './geo-tracking.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CompanyIsolationGuard } from './guards/company-isolation.guard';
+import { RolesGuard } from './guards/roles.guard';
+import { Roles } from './decorators/roles.decorator';
+import { UserRole } from './schemas/employee.schema';
 import { LiveLocationStatus } from './schemas/employee-live-location.schema';
 
 @Controller('api/v1/companies/:companyId')
-@UseGuards(JwtAuthGuard, CompanyIsolationGuard)
+@UseGuards(JwtAuthGuard, CompanyIsolationGuard, RolesGuard)
+@Roles(UserRole.ADMIN, UserRole.MANAGER)
 export class CrmController {
   constructor(private readonly geoTrackingService: GeoTrackingService) {}
 

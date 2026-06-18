@@ -8,7 +8,7 @@ import { AppService } from './app.service';
 @Module({
   imports: [
     ConfigModule.forRoot(),
-    MongooseModule.forRoot('mongodb://localhost/geo-timeline'),
+    MongooseModule.forRoot(process.env.MONGODB_URI || 'mongodb://localhost/geo-timeline'),
     GeoTrackingModule,
   ],
   controllers: [AppController],

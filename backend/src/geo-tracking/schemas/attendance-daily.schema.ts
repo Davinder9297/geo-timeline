@@ -63,6 +63,10 @@ export class AttendanceDaily extends Document {
   sessions: Session[];
 }
 
-export const AttendanceDailySchema = SchemaFactory.createForClass(AttendanceDaily);
+export const AttendanceDailySchema =
+  SchemaFactory.createForClass(AttendanceDaily);
 
-AttendanceDailySchema.index({ companyId: 1, employeeId: 1, attendanceDate: 1 }, { unique: true });
+AttendanceDailySchema.index(
+  { companyId: 1, employeeId: 1, attendanceDate: 1 },
+  { unique: true },
+);

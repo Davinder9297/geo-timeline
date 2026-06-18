@@ -2,8 +2,15 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { TimelineCalculatorService } from '../timeline-calculator.service';
-import { AttendanceDaily, AttendanceStatus } from '../schemas/attendance-daily.schema';
-import { LocationPoint, PointQuality, AppState } from '../schemas/location-point.schema';
+import {
+  AttendanceDaily,
+  AttendanceStatus,
+} from '../schemas/attendance-daily.schema';
+import {
+  LocationPoint,
+  PointQuality,
+  AppState,
+} from '../schemas/location-point.schema';
 import { AttendanceTimelineSummary } from '../schemas/attendance-timeline-summary.schema';
 import { mock, MockProxy } from 'jest-mock-extended';
 import { Model } from 'mongoose';
@@ -12,7 +19,9 @@ describe('TimelineCalculatorService', () => {
   let service: TimelineCalculatorService;
   let attendanceDailyModel: MockProxy<Model<AttendanceDaily>>;
   let locationPointModel: MockProxy<Model<LocationPoint>>;
-  let attendanceTimelineSummaryModel: MockProxy<Model<AttendanceTimelineSummary>>;
+  let attendanceTimelineSummaryModel: MockProxy<
+    Model<AttendanceTimelineSummary>
+  >;
   let configService: MockProxy<ConfigService>;
 
   beforeEach(async () => {
@@ -126,9 +135,15 @@ describe('TimelineCalculatorService', () => {
 
   describe('sortPoints', () => {
     it('should sort points by capturedAt ascending even if input is unsorted', () => {
-      const point1 = { capturedAt: new Date('2024-01-01T10:00:00Z') } as LocationPoint;
-      const point2 = { capturedAt: new Date('2024-01-01T10:01:00Z') } as LocationPoint;
-      const point3 = { capturedAt: new Date('2024-01-01T10:02:00Z') } as LocationPoint;
+      const point1 = {
+        capturedAt: new Date('2024-01-01T10:00:00Z'),
+      } as LocationPoint;
+      const point2 = {
+        capturedAt: new Date('2024-01-01T10:01:00Z'),
+      } as LocationPoint;
+      const point3 = {
+        capturedAt: new Date('2024-01-01T10:02:00Z'),
+      } as LocationPoint;
       const unsorted = [point3, point1, point2];
       const sorted = (service as any).sortPoints(unsorted);
       expect(sorted).toEqual([point1, point2, point3]);

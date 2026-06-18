@@ -68,6 +68,5 @@ npm run dev
 - Timeline playback
 - WebSocket real-time updates
 
-Created admin: employeeId=admin, password=admin123    
-Created manager: employeeId=manager1, password=manager123
-Created employee: employeeId=emp-001, password=employe123
+- Create 1 admin (employeeId: 'admin', password: 'employee123')
+- Create 10 employees (employeeId: emp-001 to emp-010, all with password: 'employee123')

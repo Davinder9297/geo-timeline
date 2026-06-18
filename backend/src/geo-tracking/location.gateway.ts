@@ -89,7 +89,9 @@ export class LocationWebSocketGateway
   ) {
     const user = (client as any).user as AuthenticatedUser;
     if (user.companyId !== body.companyId) {
-      client.emit('location:error', { error: 'Cross-company access forbidden' });
+      client.emit('location:error', {
+        error: 'Cross-company access forbidden',
+      });
       return;
     }
     await client.join(`company:${body.companyId}`);

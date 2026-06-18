@@ -2,9 +2,15 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { GeoTrackingService } from '../geo-tracking.service';
-import { AttendanceDaily, AttendanceStatus } from '../schemas/attendance-daily.schema';
+import {
+  AttendanceDaily,
+  AttendanceStatus,
+} from '../schemas/attendance-daily.schema';
 import { LocationPoint, PointQuality } from '../schemas/location-point.schema';
-import { EmployeeLiveLocation, LiveLocationStatus } from '../schemas/employee-live-location.schema';
+import {
+  EmployeeLiveLocation,
+  LiveLocationStatus,
+} from '../schemas/employee-live-location.schema';
 import { TimelineRebuildQueue } from '../queues/timeline-rebuild.queue';
 import { AuthenticatedUser } from '../guards/jwt-auth.guard';
 import { mock, MockProxy } from 'jest-mock-extended';
@@ -83,9 +89,7 @@ describe('GeoTrackingService', () => {
       });
 
       locationPointModel.find
-        .mockResolvedValueOnce([
-          { clientPointId: 'cp-1' },
-        ] as any)
+        .mockResolvedValueOnce([{ clientPointId: 'cp-1' }] as any)
         .mockResolvedValueOnce([]);
       locationPointModel.insertMany.mockResolvedValue([]);
 
@@ -133,9 +137,7 @@ describe('GeoTrackingService', () => {
 
       locationPointModel.find
         .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([
-          { deviceId: 'dev-1', sequenceNo: 1 },
-        ] as any);
+        .mockResolvedValueOnce([{ deviceId: 'dev-1', sequenceNo: 1 }] as any);
       locationPointModel.insertMany.mockResolvedValue([]);
 
       const result = await service.batchInsertLocationPoints(
@@ -232,9 +234,7 @@ describe('GeoTrackingService', () => {
       });
 
       locationPointModel.find.mockResolvedValue([]).mockResolvedValue([]);
-      locationPointModel.insertMany.mockResolvedValue([
-        { _id: 'lp-1' },
-      ] as any);
+      locationPointModel.insertMany.mockResolvedValue([{ _id: 'lp-1' }] as any);
 
       employeeLiveLocationModel.findOne.mockResolvedValue({
         capturedAt: olderDate,
@@ -262,9 +262,7 @@ describe('GeoTrackingService', () => {
         user,
       );
 
-      expect(
-        employeeLiveLocationModel.findOneAndUpdate,
-      ).toHaveBeenCalled();
+      expect(employeeLiveLocationModel.findOneAndUpdate).toHaveBeenCalled();
     });
 
     it('should NOT update live location if point is older', async () => {
@@ -287,9 +285,7 @@ describe('GeoTrackingService', () => {
       });
 
       locationPointModel.find.mockResolvedValue([]).mockResolvedValue([]);
-      locationPointModel.insertMany.mockResolvedValue([
-        { _id: 'lp-2' },
-      ] as any);
+      locationPointModel.insertMany.mockResolvedValue([{ _id: 'lp-2' }] as any);
 
       employeeLiveLocationModel.findOne.mockResolvedValue({
         capturedAt: newerDate,
@@ -317,9 +313,7 @@ describe('GeoTrackingService', () => {
         user,
       );
 
-      expect(
-        employeeLiveLocationModel.findOneAndUpdate,
-      ).not.toHaveBeenCalled();
+      expect(employeeLiveLocationModel.findOneAndUpdate).not.toHaveBeenCalled();
     });
   });
 
@@ -331,7 +325,12 @@ describe('GeoTrackingService', () => {
       });
 
       await expect(
-        service.batchInsertLocationPoints('att-1', 'dev-1', [{}, {}, {}] as any, user),
+        service.batchInsertLocationPoints(
+          'att-1',
+          'dev-1',
+          [{}, {}, {}] as any,
+          user,
+        ),
       ).rejects.toThrowError();
     });
   });

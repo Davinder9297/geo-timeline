@@ -66,6 +66,7 @@ export interface BatchLocationPointsResponse {
     duplicates: number;
     rejected: number;
     lastAcceptedSequenceNo: number;
+    lastUpdatedAt: string | null;
   };
 }
 
@@ -95,6 +96,11 @@ export interface GetAttendancesResponse {
 }
 
 export interface CreateAttendanceResponse {
+  success: boolean;
+  data: AttendanceDaily;
+}
+
+export interface CheckOutAttendanceResponse {
   success: boolean;
   data: AttendanceDaily;
 }

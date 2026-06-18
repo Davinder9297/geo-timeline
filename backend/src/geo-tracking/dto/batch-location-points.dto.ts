@@ -1,4 +1,13 @@
-import { IsString, IsNumber, IsEnum, IsBoolean, IsArray, ValidateNested, Max, Min } from 'class-validator';
+import {
+  IsString,
+  IsNumber,
+  IsEnum,
+  IsBoolean,
+  IsArray,
+  ValidateNested,
+  Max,
+  Min,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { AppState } from '../schemas/location-point.schema';
 
@@ -52,4 +61,12 @@ export class BatchLocationPointsDto {
   @ValidateNested({ each: true })
   @Type(() => LocationPointDto)
   points: LocationPointDto[];
+}
+
+export interface BatchLocationPointsResult {
+  accepted: number;
+  duplicates: number;
+  rejected: number;
+  lastAcceptedSequenceNo: number;
+  lastUpdatedAt: Date | null;
 }
