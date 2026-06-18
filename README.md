@@ -1,83 +1,73 @@
-# CRM Employee Geo Activity Timeline
+# Geo Timeline - Monorepo
 
-A complete Google Timeline-inspired employee location tracking and analytics system.
+A complete employee location tracking system with NestJS backend and Next.js frontends.
 
-## Architecture
+## Project Structure
 
-### Backend (NestJS)
-- **Frameworks**: NestJS, Mongoose, Socket.io
-- **Collections**:
-  - `employees`: Employee/CRM user data
-  - `attendance_daily`: Daily attendance records (one per employee per day)
-  - `location_points`: Append-only raw GPS points
-  - `employee_live_locations`: Fast live dashboard cache
-  - `attendance_timeline_summaries`: Calculated analytics
-- **APIs**: Mobile tracking APIs, CRM dashboard APIs
-- **WebSocket**: Real-time updates for CRM map
+```
+geo-timeline/
+├── backend/                # NestJS backend
+├── trackers/               # Next.js tracker client (for employees)
+├── dashboard/             # Next.js CRM dashboard (for managers)
+├── .gitignore
+└── README.md
+```
 
-### Tracker Client (React + Vite)
-- Stand-in for Flutter mobile app
-- Browser-based location tracking
-- Local queue, batch upload, retry logic
-- Connects to backend APIs
+## Backend
 
-### CRM Dashboard (React + Vite + Google Maps)
-- Employee live map with clustering
-- Employee list with filters
-- Timeline view with simulation playback
-- Analytics dashboard
+### Setup
 
-## Quick Start
-
-### Backend Setup
 ```bash
-cd c:\geo-timeline
+cd backend
 npm install
-# Set up environment variables (copy .env.example to .env)
+cp .env.example .env  # Create your environment variables
 npm run start:dev
 ```
 
-### Tracker Client Setup
+## Tracker Client
+
+### Setup
+
 ```bash
-cd tracker-client
+cd trackers
 npm install
-# Update config.ts if backend URL is different
 npm run dev
 ```
 
-### CRM Dashboard Setup
+## CRM Dashboard
+
+### Setup
+
 ```bash
-cd crm-dashboard
+cd dashboard
 npm install
-# Copy .env.example to .env and fill in Google Maps API key
+cp .env.example .env  # Add your Google Maps API key
 npm run dev
 ```
 
-## What's Complete
-- ✅ All required MongoDB collections with indexes
-- ✅ Backend APIs (mobile + CRM)
-- ✅ Timeline calculation algorithm
-- ✅ WebSocket gateway for real-time updates
-- ✅ Tracker client (React stand-in for Flutter)
-- ✅ CRM dashboard with map, timeline, playback
-- ✅ Stale employee detection
-- ✅ Duplicate point handling
-- ✅ Batch processing
+## Features
 
-## What's Pending
-- 🟡 Full test suite (backend unit tests, API/e2e tests, WebSocket tests, frontend tests)
-- 🟡 More advanced timeline playback (tied to actual timeline events)
-- 🟡 Complete set of map markers (break, hold/stop, start/end)
-- 🟡 Real job queue (BullMQ) instead of inline timeline rebuilds
-- 🟡 Optional Google Roads API integration
-- 🟡 Load testing
+### Backend
 
-## Folder Structure
-```
-c:\geo-timeline\
-├── src/                    # NestJS backend source
-│   └── geo-tracking/       # Geo-tracking module
-├── tracker-client/         # React tracker client
-├── crm-dashboard/          # React CRM dashboard
-└── README.md               # This file
-```
+- MongoDB with Mongoose
+- REST APIs for tracking, location upload, timeline calculation
+- WebSocket real-time updates
+- Timeline calculation algorithm (distance, stops, anomalies)
+
+### Tracker Client
+
+- Browser location tracking
+- Local queue persistence
+- Batch upload with retries
+- Status UI
+
+### CRM Dashboard
+
+- Live employee map with clustering
+- Employee timeline visualization
+- Timeline playback
+- WebSocket real-time updates
+
+Created admin: employeeId=admin, password=admin123    
+Created manager: employeeId=manager1, password=manager123
+Created employee: employeeId=emp-001, password=employe123
