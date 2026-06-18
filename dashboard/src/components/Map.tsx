@@ -38,7 +38,9 @@ export const Map = () => {
   const clustererRef = useRef<MarkerClusterer | null>(null);
   const polylinesRef = useRef<google.maps.Polyline[]>([]);
   const playbackMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
+  const sequenceMarkersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
   const [showRaw, setShowRaw] = useState(false);
+  const [showSequenceMarkers, setShowSequenceMarkers] = useState(true);
   const [mapsLoaded, setMapsLoaded] = useState(false);
 
   useEffect(() => {
@@ -136,6 +138,8 @@ export const Map = () => {
     if (!mapInstanceRef.current || !timeline || !mapsLoaded) {
       polylinesRef.current.forEach((p) => p.setMap(null));
       polylinesRef.current = [];
+      sequenceMarkersRef.current.forEach((m) => (m.map = null));
+      sequenceMarkersRef.current = [];
       if (playbackMarkerRef.current) {
         playbackMarkerRef.current.map = null;
         playbackMarkerRef.current = null;
@@ -145,6 +149,8 @@ export const Map = () => {
 
     polylinesRef.current.forEach((p) => p.setMap(null));
     polylinesRef.current = [];
+    sequenceMarkersRef.current.forEach((m) => (m.map = null));
+    sequenceMarkersRef.current = [];
 
     const polyline = showRaw
       ? timeline.processedRoute?.encodedRawPolyline
@@ -179,13 +185,41 @@ export const Map = () => {
         content: playbackMarkerElement,
       });
     }
-  }, [timeline, showRaw, mapsLoaded]);
+
+    // Render sequence markers if enabled
+    if (showSequenceMarkers && timeline.rawPoints) {
+      timeline.rawPoints.forEach((point) => {
+        const markerElement = document.createElement("div");
+        markerElement.style.width = "32px";
+        markerElement.style.height = "32px";
+        markerElement.style.borderRadius = "50%";
+        markerElement.style.backgroundColor = "#FF5722";
+        markerElement.style.color = "white";
+        markerElement.style.display = "flex";
+        markerElement.style.alignItems = "center";
+        markerElement.style.justifyContent = "center";
+        markerElement.style.fontSize = "12px";
+        markerElement.style.fontWeight = "bold";
+        markerElement.style.border = "2px solid white";
+        markerElement.style.boxShadow = "0 2px 6px rgba(0,0,0,0.3)";
+        markerElement.textContent = point.sequenceNo.toString();
+        markerElement.title = `Point #${point.sequenceNo} - ${new Date(point.capturedAt).toLocaleString()}`;
+
+        const marker = new google.maps.marker.AdvancedMarkerElement({
+          position: { lat: point.latitude, lng: point.longitude },
+          map: mapInstanceRef.current,
+          content: markerElement,
+        });
+        sequenceMarkersRef.current.push(marker);
+      });
+    }
+  }, [timeline, showRaw, showSequenceMarkers, mapsLoaded]);
 
   return (
     <div className="flex-1 h-full relative">
       <div ref={mapRef} className="w-full h-full" />
       {selectedEmployee && timeline && (
-        <div className="absolute top-4 right-4 bg-white p-3 rounded-md shadow-md flex items-center gap-3">
+        <div className="absolute top-4 right-4 bg-white p-3 rounded-md shadow-md flex flex-col items-start gap-3">
           <label className="text-sm flex items-center gap-2">
             <input
               type="checkbox"
@@ -193,6 +227,14 @@ export const Map = () => {
               onChange={(e) => setShowRaw(e.target.checked)}
             />
             Show Raw Path
+          </label>
+          <label className="text-sm flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={showSequenceMarkers}
+              onChange={(e) => setShowSequenceMarkers(e.target.checked)}
+            />
+            Show Sequence Numbers
           </label>
         </div>
       )}

@@ -68,9 +68,17 @@ export interface AttendanceDaily {
   trackingStoppedAt?: string;
 }
 
+export interface RawLocationPoint {
+  latitude: number;
+  longitude: number;
+  sequenceNo: number;
+  capturedAt: string;
+}
+
 export interface TimelineResponse {
   attendance: AttendanceDaily;
   rawPointsCount: number;
+  rawPoints: RawLocationPoint[];
   summaryAvailable: boolean;
   processedRoute?: {
     encodedProcessedPolyline: string;

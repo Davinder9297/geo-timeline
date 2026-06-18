@@ -550,9 +550,19 @@ export class GeoTrackingService {
       attendanceId: attendanceIdString,
     });
 
-    const rawPointsCount = await this.locationPointModel.countDocuments({
-      attendanceId: attendanceIdString,
-    });
+    // Get raw location points with sequence numbers
+    const rawPointsDb = await this.locationPointModel
+      .find({ attendanceId: attendanceIdString })
+      .sort({ sequenceNo: 1 })
+      .select('location sequenceNo capturedAt')
+      .lean();
+
+    const rawPoints = rawPointsDb.map((p) => ({
+      latitude: p.location?.coordinates?.[1] ?? 0,
+      longitude: p.location?.coordinates?.[0] ?? 0,
+      sequenceNo: p.sequenceNo,
+      capturedAt: p.capturedAt,
+    }));
 
     const summaryAvailable = !!summary;
     let processedRoute = null;
@@ -581,7 +591,8 @@ export class GeoTrackingService {
 
     return {
       attendance,
-      rawPointsCount,
+      rawPointsCount: rawPoints.length,
+      rawPoints,
       summaryAvailable,
       processedRoute,
       totals,
