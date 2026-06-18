@@ -7,7 +7,7 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.enableCors({
-    origin: ['http://localhost:3001', 'http://localhost:3002'],
+    origin: ['http://localhost:3001', 'http://localhost:3002','https://geo-timeline-trackers.vercel.app','https://geo-timeline-dashboard.vercel.app'],
     credentials: true,
   });
 
