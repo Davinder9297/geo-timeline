@@ -28,10 +28,10 @@ export const Map = () => {
   const { employees, selectedEmployee, timeline } = useCrm();
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<google.maps.Marker[]>([]);
+  const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
   const clustererRef = useRef<MarkerClusterer | null>(null);
   const polylinesRef = useRef<google.maps.Polyline[]>([]);
-  const playbackMarkerRef = useRef<google.maps.Marker | null>(null);
+  const playbackMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
   const [showRaw, setShowRaw] = useState(false);
   const [mapsLoaded, setMapsLoaded] = useState(false);
 
@@ -49,7 +49,7 @@ export const Map = () => {
       if (!document.getElementById(scriptId)) {
         const script = document.createElement("script");
         script.id = scriptId;
-        const scriptUrl = `https://maps.googleapis.com/maps/api/js?key=${CONFIG.GOOGLE_MAPS_API_KEY}&libraries=geometry&loading=async&callback=initGoogleMaps`;
+        const scriptUrl = `https://maps.googleapis.com/maps/api/js?key=${CONFIG.GOOGLE_MAPS_API_KEY}&libraries=geometry,marker&loading=async&callback=initGoogleMaps`;
         console.log("[Map] Loading Google Maps script from:", scriptUrl);
         script.src = scriptUrl;
         (window as any).initGoogleMaps = () => {
@@ -58,6 +58,7 @@ export const Map = () => {
             const map = new google.maps.Map(mapRef.current, {
               zoom: 12,
               center: { lat: 40.7128, lng: -74.006 },
+              ...(CONFIG.GOOGLE_MAPS_MAP_ID ? { mapId: CONFIG.GOOGLE_MAPS_MAP_ID } : {}),
             });
             mapInstanceRef.current = map;
             setMapsLoaded(true);
@@ -70,6 +71,7 @@ export const Map = () => {
         const map = new google.maps.Map(mapRef.current, {
           zoom: 12,
           center: { lat: 40.7128, lng: -74.006 },
+          ...(CONFIG.GOOGLE_MAPS_MAP_ID ? { mapId: CONFIG.GOOGLE_MAPS_MAP_ID } : {}),
         });
         mapInstanceRef.current = map;
         setMapsLoaded(true);
@@ -80,25 +82,26 @@ export const Map = () => {
 
   useEffect(() => {
     if (!mapInstanceRef.current || !mapsLoaded) return;
-    markersRef.current.forEach((m) => m.setMap(null));
+    markersRef.current.forEach((m) => m.map = null);
     markersRef.current = [];
 
     employees.forEach((emp) => {
-      const marker = new google.maps.Marker({
+      const markerElement = document.createElement("div");
+      markerElement.style.width = "20px";
+      markerElement.style.height = "20px";
+      markerElement.style.borderRadius = "50%";
+      markerElement.style.backgroundColor = getMarkerColor(emp.status, emp.isStale);
+      markerElement.style.opacity = emp.isStale ? 0.5 : 1;
+      markerElement.style.border = "2px solid white";
+      markerElement.title = emp.name;
+
+      const marker = new google.maps.marker.AdvancedMarkerElement({
         position: {
           lat: emp.lastLocation.latitude,
           lng: emp.lastLocation.longitude,
         },
         map: mapInstanceRef.current!,
-        title: emp.name,
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          fillColor: getMarkerColor(emp.status, emp.isStale),
-          fillOpacity: emp.isStale ? 0.5 : 1,
-          strokeColor: "#ffffff",
-          strokeWeight: 2,
-          scale: 10,
-        },
+        content: markerElement,
       });
       markersRef.current.push(marker);
     });
@@ -128,7 +131,7 @@ export const Map = () => {
       polylinesRef.current.forEach((p) => p.setMap(null));
       polylinesRef.current = [];
       if (playbackMarkerRef.current) {
-        playbackMarkerRef.current.setMap(null);
+        playbackMarkerRef.current.map = null;
         playbackMarkerRef.current = null;
       }
       return;
@@ -156,10 +159,18 @@ export const Map = () => {
       path.forEach((p) => bounds.extend(new google.maps.LatLng(p.lat, p.lng)));
       mapInstanceRef.current?.fitBounds(bounds);
 
-      playbackMarkerRef.current = new google.maps.Marker({
+      const playbackMarkerElement = document.createElement("div");
+      playbackMarkerElement.style.width = "20px";
+      playbackMarkerElement.style.height = "20px";
+      playbackMarkerElement.style.borderRadius = "50%";
+      playbackMarkerElement.style.backgroundColor = "#2196F3";
+      playbackMarkerElement.style.border = "2px solid white";
+      playbackMarkerElement.title = "Playback";
+
+      playbackMarkerRef.current = new google.maps.marker.AdvancedMarkerElement({
         position: path[0],
         map: mapInstanceRef.current,
-        title: "Playback",
+        content: playbackMarkerElement,
       });
     }
   }, [timeline, showRaw, mapsLoaded]);

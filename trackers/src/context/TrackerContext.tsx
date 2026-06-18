@@ -84,6 +84,7 @@ export const TrackerProvider = ({
   const userRef = useRef<UserState | null>(null);
   const queueRef = useRef<LocationPointDto[]>([]);
   const isUploadingRef = useRef(false); // New ref to track upload status
+  const currentChunkRef = useRef<LocationPointDto[]>([]); // Ref to track current chunk being sent
 
   // Keep refs updated
   useEffect(() => {
@@ -219,9 +220,23 @@ export const TrackerProvider = ({
       setLastError(null);
       retryBackoffRef.current = 1000;
       const lastAccepted = data.data.lastAcceptedSequenceNo;
-      const newQueue = queueRef.current.filter((p) => p.sequenceNo > lastAccepted);
+      
+      // First, try to filter by sequence number > lastAccepted
+      let newQueue = queueRef.current.filter((p) => p.sequenceNo > lastAccepted);
+      
+      // If the queue didn't change at all (meaning none of the points in the current chunk were accepted),
+      // then just remove the current chunk (they're duplicates or rejected)
+      if (newQueue.length === queueRef.current.length && currentChunkRef.current.length > 0) {
+        // Remove the first MAX_BATCH_SIZE points (the current chunk)
+        newQueue = queueRef.current.slice(currentChunkRef.current.length);
+      }
+      
       setQueue(newQueue);
       queueRef.current = newQueue;
+      // If there are still points left, flush again
+      if (newQueue.length > 0 && !isUploadingRef.current) {
+        flushQueue();
+      }
     },
     onError: (error) => {
       setLastError(`Batch upload error: ${(error as Error).message}`);
@@ -232,12 +247,16 @@ export const TrackerProvider = ({
     },
   });
 
+  const MAX_BATCH_SIZE = 200;
+
   const retryWithBackoff = () => {
     setTimeout(() => {
       if (queueRef.current.length > 0 && !isUploadingRef.current) {
+        const chunk = queueRef.current.slice(0, MAX_BATCH_SIZE);
+        currentChunkRef.current = chunk;
         const batch: BatchLocationPointsRequest = {
           deviceId: getDeviceId(),
-          points: queueRef.current,
+          points: chunk,
         };
         uploadBatchMutation.mutate(batch);
       }
@@ -246,13 +265,16 @@ export const TrackerProvider = ({
   };
 
   const flushQueue = useCallback(() => {
-    if (!user || !user.attendanceId || queueRef.current.length === 0 || isUploadingRef.current) return;
+    const currentUser = userRef.current;
+    if (!currentUser || !currentUser.attendanceId || queueRef.current.length === 0 || isUploadingRef.current) return;
+    const chunk = queueRef.current.slice(0, MAX_BATCH_SIZE);
+    currentChunkRef.current = chunk;
     const batch: BatchLocationPointsRequest = {
       deviceId: getDeviceId(),
-      points: queueRef.current,
+      points: chunk,
     };
     uploadBatchMutation.mutate(batch);
-  }, [user, uploadBatchMutation]); // Removed queue from dependencies
+  }, [uploadBatchMutation]); // Only stable uploadBatchMutation!
 
   const stopWatcher = () => {
     if (watcherRef.current !== null) {
@@ -299,38 +321,59 @@ export const TrackerProvider = ({
     return document.visibilityState === "visible" ? "FOREGROUND" : "BACKGROUND";
   };
 
-  const addLocationToQueue = useCallback(async (latitude: number, longitude: number, accuracy: number = 0, speed: number = 0, heading: number = 0) => {
-    if (!user || !user.attendanceId) return;
-    const capturedAt = new Date().toISOString();
-    const batteryPercent = await getBatteryPercent();
-    const appState = getAppState();
-    const networkType = getNetworkType();
+const addLocationToQueue = useCallback(async (
+  latitude: number,
+  longitude: number,
+  accuracy: number = 0,
+  speed: number = 0,
+  heading: number = 0,
+  bypassDistanceFilter: boolean = false // only true for explicit heartbeat pings, if you want those
+) => {
+  const currentUser = userRef.current;
+  if (!currentUser || !currentUser.attendanceId) return;
 
-    const point: LocationPointDto = {
-      clientPointId: generateClientPointId(),
-      sequenceNo: sequenceRef.current++,
-      capturedAt,
+  // ✅ Distance check now lives here, so EVERY caller respects it
+  if (
+    !bypassDistanceFilter &&
+    lastLocationRef.current &&
+    haversineDistance(
+      lastLocationRef.current.lat,
+      lastLocationRef.current.lon,
       latitude,
-      longitude,
-      accuracyM: accuracy,
-      speedMps: speed,
-      heading,
-      batteryPercent,
-      networkType,
-      appState,
-      isMocked: false,
-    };
+      longitude
+    ) < CONFIG.DISTANCE_FILTER_METERS
+  ) {
+    return;
+  }
 
-    // Update both state and ref immediately
-    setQueue((prev) => [...prev, point]);
-    queueRef.current = [...queueRef.current, point];
-    lastLocationRef.current = { lat: latitude, lon: longitude };
+  const capturedAt = new Date().toISOString();
+  const batteryPercent = await getBatteryPercent();
+  const appState = getAppState();
+  const networkType = getNetworkType();
 
-    // Use queueRef instead of queue state to check length
-    if (queueRef.current.length >= CONFIG.BATCH_SIZE) {
-      flushQueue();
-    }
-  }, [user, flushQueue]); // Removed queue from dependencies
+  const point: LocationPointDto = {
+    clientPointId: generateClientPointId(),
+    sequenceNo: sequenceRef.current++,
+    capturedAt,
+    latitude,
+    longitude,
+    accuracyM: accuracy,
+    speedMps: speed,
+    heading,
+    batteryPercent,
+    networkType,
+    appState,
+    isMocked: false,
+  };
+
+  setQueue((prev) => [...prev, point]);
+  queueRef.current = [...queueRef.current, point];
+  lastLocationRef.current = { lat: latitude, lon: longitude };
+
+  if (queueRef.current.length >= CONFIG.BATCH_SIZE) {
+    flushQueue();
+  }
+}, []);
 
   const getCurrentLocation = useCallback(() => {
     navigator.geolocation.getCurrentPosition(
@@ -350,27 +393,15 @@ export const TrackerProvider = ({
     );
   }, [addLocationToQueue]);
 
-  const handlePosition = useCallback(
-    async (position: GeolocationPosition) => {
-      if (!user || !user.attendanceId) return;
-      const { latitude, longitude, accuracy, speed, heading } = position.coords;
-
-      if (
-        lastLocationRef.current &&
-        haversineDistance(
-          lastLocationRef.current.lat,
-          lastLocationRef.current.lon,
-          latitude,
-          longitude
-        ) < CONFIG.DISTANCE_FILTER_METERS
-      ) {
-        return;
-      }
-
-      await addLocationToQueue(latitude, longitude, accuracy, speed || 0, heading || 0);
-    },
-    [user, addLocationToQueue]
-  );
+const handlePosition = useCallback(
+  async (position: GeolocationPosition) => {
+    const currentUser = userRef.current;
+    if (!currentUser || !currentUser.attendanceId) return;
+    const { latitude, longitude, accuracy, speed, heading } = position.coords;
+    await addLocationToQueue(latitude, longitude, accuracy, speed || 0, heading || 0);
+  },
+  [addLocationToQueue]
+);
 
   const handlePositionError = useCallback((error: GeolocationPositionError) => {
     console.error("Geolocation error:", error);
@@ -501,10 +532,12 @@ export const TrackerProvider = ({
     const handleOnline = () => {
       const currentUser = userRef.current;
       const currentQueue = queueRef.current;
-      if (currentUser && currentUser.attendanceId && currentQueue.length > 0) {
+      if (currentUser && currentUser.attendanceId && currentQueue.length > 0 && !isUploadingRef.current) {
+        const chunk = currentQueue.slice(0, MAX_BATCH_SIZE);
+        currentChunkRef.current = chunk;
         const batch: BatchLocationPointsRequest = {
           deviceId: getDeviceId(),
-          points: currentQueue,
+          points: chunk,
         };
         uploadBatchMutation.mutate(batch);
       }
