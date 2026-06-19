@@ -90,7 +90,7 @@ export const TrackerProvider = ({
   const queueRef = useRef<LocationPointDto[]>([]);
   const isUploadingRef = useRef(false); // New ref to track upload status
   const currentChunkRef = useRef<LocationPointDto[]>([]); // Ref to track current chunk being sent
-
+  const isProcessingPositionRef = useRef(false);
   const [user, setUser] = useState<UserState | null>(null);
   const [trackingState, setTrackingState] = useState<
     "idle" | "active" | "stopped"
@@ -400,59 +400,74 @@ const addLocationToQueue = useCallback(async (
   accuracy: number = 0,
   speed: number = 0,
   heading: number = 0,
-  bypassDistanceFilter: boolean = false // only true for explicit heartbeat pings, if you want those
+  bypassDistanceFilter: boolean = false
 ) => {
   const currentUser = userRef.current;
   if (!currentUser || !currentUser.attendanceId) return;
 
-  const capturedAt = new Date().toISOString();
+  if (isProcessingPositionRef.current) return;
+  isProcessingPositionRef.current = true;
 
-  if (!bypassDistanceFilter && !shouldAcceptPoint(latitude, longitude, accuracy, capturedAt)) {
-    return;
-  }
+  try {
+    const capturedAt = new Date().toISOString();
 
-  const batteryPercent = await getBatteryPercent();
-  const appState = getAppState();
-  const networkType = getNetworkType();
+    if (!bypassDistanceFilter && !shouldAcceptPoint(latitude, longitude, accuracy, capturedAt)) {
+      return;
+    }
 
-  const point: LocationPointDto = {
-    clientPointId: generateClientPointId(),
-    sequenceNo: sequenceRef.current,
-    capturedAt,
-    latitude,
-    longitude,
-    accuracyM: accuracy,
-    speedMps: speed,
-    heading,
-    batteryPercent,
-    networkType,
-    appState,
-    isMocked: false,
-  };
+    // Capture the previous point BEFORE we overwrite the ref, so distance
+    // calculation below still works correctly.
+    const previousLocation = lastLocationRef.current;
 
-  sequenceRef.current += 1;
+    // Claim this location synchronously, before any async work, to prevent
+    // concurrent calls (getCurrentPosition + watchPosition firing close
+    // together) from both treating this as the "first" point.
+    lastLocationRef.current = { lat: latitude, lon: longitude };
 
-  const distanceFromLastAccepted = lastLocationRef.current
-    ? haversineDistance(
-        lastLocationRef.current.lat,
-        lastLocationRef.current.lon,
-        latitude,
-        longitude,
-      )
-    : 0;
+    const batteryPercent = await getBatteryPercent();
+    const appState = getAppState();
+    const networkType = getNetworkType();
 
-  if (lastLocationRef.current && distanceFromLastAccepted > 0) {
-    setTotalDistance((prev) => prev + distanceFromLastAccepted);
-  }
+    const point: LocationPointDto = {
+      clientPointId: generateClientPointId(),
+      sequenceNo: sequenceRef.current,
+      capturedAt,
+      latitude,
+      longitude,
+      accuracyM: accuracy,
+      speedMps: speed,
+      heading,
+      batteryPercent,
+      networkType,
+      appState,
+      isMocked: false,
+    };
 
-  setQueue((prev) => [...prev, point]);
-  queueRef.current = [...queueRef.current, point];
-  lastLocationRef.current = { lat: latitude, lon: longitude };
-  lastQueuedPointRef.current = point;
-  setLastAccuracy(accuracy);
+    sequenceRef.current += 1;
 
-  if (queueRef.current.length >= CONFIG.BATCH_SIZE) {
-    flushQueue();
+    const distanceFromLastAccepted = previousLocation
+      ? haversineDistance(
+          previousLocation.lat,
+          previousLocation.lon,
+          latitude,
+          longitude,
+        )
+      : 0;
+
+    if (previousLocation && distanceFromLastAccepted > 0) {
+      setTotalDistance((prev) => prev + distanceFromLastAccepted);
+    }
+
+    setQueue((prev) => [...prev, point]);
+    queueRef.current = [...queueRef.current, point];
+    lastQueuedPointRef.current = point;
+    setLastAccuracy(accuracy);
+
+    if (queueRef.current.length >= CONFIG.BATCH_SIZE) {
+      flushQueue();
+    }
+  } finally {
+    isProcessingPositionRef.current = false;
   }
 }, [flushQueue, shouldAcceptPoint]);
 
