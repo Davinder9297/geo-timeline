@@ -51,7 +51,7 @@ export default function Home() {
     try {
       await createAttendance();
     } catch (err) {
-      setError("Failed to create attendance: " + (err as Error).message);
+      setError((err as Error).message || "Failed to create attendance");
     }
   };
 
@@ -60,7 +60,7 @@ export default function Home() {
     try {
       await checkOutAttendance();
     } catch (err) {
-      setError("Failed to check out: " + (err as Error).message);
+      setError((err as Error).message || "Failed to check out");
     }
   };
 

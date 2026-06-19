@@ -3,12 +3,19 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { json, urlencoded } from 'body-parser';
 import type { NextFunction, Request, Response } from 'express';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.enableCors({
-    origin: ['http://localhost:3001', 'http://localhost:3002','https://geo-timeline-trackers.vercel.app','https://geo-timeline-dashboard.vercel.app','http://10.129.106.148:3002'],
+    origin: [
+      'http://localhost:3001',
+      'http://localhost:3002',
+      'https://geo-timeline-trackers.vercel.app',
+      'https://geo-timeline-dashboard.vercel.app',
+      'http://10.129.106.148:3002',
+    ],
     credentials: true,
   });
 
@@ -26,6 +33,10 @@ async function bootstrap() {
     });
   }
 
+  // Use global exception filter to normalize error responses
+  app.useGlobalFilters(new AllExceptionsFilter());
+
   await app.listen(process.env.PORT ?? 3000);
 }
-bootstrap();
+
+void bootstrap();

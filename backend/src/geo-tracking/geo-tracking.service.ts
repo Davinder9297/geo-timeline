@@ -69,7 +69,14 @@ export class GeoTrackingService {
     });
 
     if (existing) {
-      throw new ConflictException('Attendance already exists for today');
+      // If the attendance exists and has a final check-out, inform the user they can't re-check-in
+      if (existing.finalCheckOutAt) {
+        throw new ConflictException(
+          'You have already checked out today; you cannot check in again'
+        );
+      }
+      // Otherwise, they have already checked in
+      throw new ConflictException('You have already checked in today');
     }
 
     const sessionId = uuidv4();
@@ -97,58 +104,71 @@ export class GeoTrackingService {
     attendanceId: string,
     user: AuthenticatedUser,
   ): Promise<AttendanceDaily> {
-    const attendance = await this.attendanceDailyModel.findById(attendanceId);
-    if (!attendance) {
-      throw new NotFoundException('Attendance not found');
+    const session = await this.attendanceDailyModel.db.startSession();
+    try {
+      const updatedAttendance = await session.withTransaction(async () => {
+        const attendance = await this.attendanceDailyModel
+          .findById(attendanceId)
+          .session(session);
+        if (!attendance) {
+          throw new NotFoundException('Attendance not found');
+        }
+
+        if (
+          attendance.employeeId !== user.employeeId ||
+          attendance.companyId !== user.companyId
+        ) {
+          throw new NotFoundException('Attendance not found');
+        }
+
+        if (attendance.finalCheckOutAt) {
+          throw new ConflictException('Already checked out');
+        }
+
+        if (attendance.sessions.length > 0) {
+          const lastSession = attendance.sessions[attendance.sessions.length - 1];
+          lastSession.checkOutAt = new Date();
+        }
+
+        const updated = await this.attendanceDailyModel.findByIdAndUpdate(
+          attendanceId,
+          {
+            $set: {
+              finalCheckOutAt: new Date(),
+              status: AttendanceStatus.CHECKED_OUT,
+              sessions: attendance.sessions,
+            },
+          },
+          { returnDocument: 'after', session },
+        );
+
+        if (!updated) {
+          throw new NotFoundException('Attendance not found');
+        }
+
+        await this.employeeLiveLocationModel.findOneAndUpdate(
+          { companyId: user.companyId, employeeId: user.employeeId },
+          {
+            $set: {
+              status: LiveLocationStatus.CHECKED_OUT,
+              lastUpdatedAt: new Date(),
+            },
+          },
+          { session },
+        );
+
+        return updated;
+      });
+
+      if (!updatedAttendance) {
+        throw new NotFoundException('Attendance not found');
+      }
+
+      await this.timelineRebuildQueue.enqueueRebuild(attendanceId);
+      return updatedAttendance;
+    } finally {
+      await session.endSession();
     }
-
-    if (
-      attendance.employeeId !== user.employeeId ||
-      attendance.companyId !== user.companyId
-    ) {
-      throw new NotFoundException('Attendance not found');
-    }
-
-    if (attendance.finalCheckOutAt) {
-      throw new ConflictException('Already checked out');
-    }
-
-    // Check out the last session
-    if (attendance.sessions.length > 0) {
-      const lastSession = attendance.sessions[attendance.sessions.length - 1];
-      lastSession.checkOutAt = new Date();
-    }
-
-    const updatedAttendance = await this.attendanceDailyModel.findByIdAndUpdate(
-      attendanceId,
-      {
-        $set: {
-          finalCheckOutAt: new Date(),
-          status: AttendanceStatus.CHECKED_OUT,
-          sessions: attendance.sessions,
-        },
-      },
-      { returnDocument: 'after' },
-    );
-
-    if (!updatedAttendance) {
-      throw new NotFoundException('Attendance not found');
-    }
-
-    // Update live location status to CHECKED_OUT
-    await this.employeeLiveLocationModel.findOneAndUpdate(
-      { companyId: user.companyId, employeeId: user.employeeId },
-      {
-        $set: {
-          status: LiveLocationStatus.CHECKED_OUT,
-          lastUpdatedAt: new Date(),
-        },
-      },
-    );
-
-    await this.timelineRebuildQueue.enqueueRebuild(attendanceId);
-
-    return updatedAttendance;
   }
 
   async startTracking(
@@ -336,84 +356,101 @@ export class GeoTrackingService {
     let savedPoints: any[] = [];
     let lastUpdatedAt: Date | null = null;
     if (pointsToInsert.length > 0) {
-      savedPoints = await this.locationPointModel.insertMany(pointsToInsert);
-
-      const latestPoint = savedPoints.reduce((latest, current) => {
-        return !latest || current.capturedAt > latest.capturedAt
-          ? current
-          : latest;
-      }, null);
-
-      if (latestPoint) {
-        const existingLiveLocation =
-          await this.employeeLiveLocationModel.findOne({
-            companyId: user.companyId,
-            employeeId: user.employeeId,
+      const session = await this.locationPointModel.db.startSession();
+      try {
+        await session.withTransaction(async () => {
+          savedPoints = await this.locationPointModel.insertMany(pointsToInsert, {
+            session,
           });
 
-        if (
-          !existingLiveLocation ||
-          latestPoint.capturedAt > existingLiveLocation.capturedAt
-        ) {
-          const status =
-            attendance.status === AttendanceStatus.WORKING
-              ? LiveLocationStatus.WORKING
-              : LiveLocationStatus.ON_BREAK;
+          const latestPoint = savedPoints.reduce((latest, current) => {
+            return !latest || current.capturedAt > latest.capturedAt
+              ? current
+              : latest;
+          }, null);
 
-          const updatedLiveLocation =
-            await this.employeeLiveLocationModel.findOneAndUpdate(
-              {
-                companyId: user.companyId,
-                employeeId: user.employeeId,
-              },
-              {
-                $set: {
+          if (latestPoint) {
+            const existingLiveLocation =
+              await this.employeeLiveLocationModel.findOne(
+                {
                   companyId: user.companyId,
                   employeeId: user.employeeId,
-                  attendanceId,
-                  latestPointId: latestPoint._id.toString(),
-                  location: latestPoint.location,
-                  capturedAt: latestPoint.capturedAt,
-                  receivedAt: latestPoint.receivedAt,
+                },
+                undefined,
+                { session },
+              );
+
+            if (
+              !existingLiveLocation ||
+              latestPoint.capturedAt > existingLiveLocation.capturedAt
+            ) {
+              const status =
+                attendance.status === AttendanceStatus.WORKING
+                  ? LiveLocationStatus.WORKING
+                  : LiveLocationStatus.ON_BREAK;
+
+              const updatedLiveLocation =
+                await this.employeeLiveLocationModel.findOneAndUpdate(
+                  {
+                    companyId: user.companyId,
+                    employeeId: user.employeeId,
+                  },
+                  {
+                    $set: {
+                      companyId: user.companyId,
+                      employeeId: user.employeeId,
+                      attendanceId,
+                      latestPointId: latestPoint._id.toString(),
+                      location: latestPoint.location,
+                      capturedAt: latestPoint.capturedAt,
+                      receivedAt: latestPoint.receivedAt,
+                      status,
+                      isStale: false,
+                      lastUpdatedAt: new Date(),
+                    },
+                  },
+                  {
+                    upsert: true,
+                    returnDocument: 'after',
+                    session,
+                  },
+                );
+
+              lastUpdatedAt = updatedLiveLocation.lastUpdatedAt;
+
+              // Broadcast location update
+              this.locationBroadcastService.broadcastEmployeeLocationUpdate(
+                user.companyId,
+                user.employeeId,
+                {
+                  employeeId: user.employeeId,
+                  location: {
+                    latitude: latestPoint.location.coordinates[1],
+                    longitude: latestPoint.location.coordinates[0],
+                  },
                   status,
                   isStale: false,
-                  lastUpdatedAt: new Date(),
+                  lastUpdatedAt: updatedLiveLocation.lastUpdatedAt,
                 },
-              },
-              { upsert: true, returnDocument: 'after' },
-            );
+              );
 
-          lastUpdatedAt = updatedLiveLocation.lastUpdatedAt;
-
-          // Broadcast location update
-          this.locationBroadcastService.broadcastEmployeeLocationUpdate(
-            user.companyId,
-            user.employeeId,
-            {
-              employeeId: user.employeeId,
-              location: {
-                latitude: latestPoint.location.coordinates[1],
-                longitude: latestPoint.location.coordinates[0],
-              },
-              status,
-              isStale: false,
-              lastUpdatedAt: updatedLiveLocation.lastUpdatedAt,
-            },
-          );
-
-          // If was stale before, broadcast status update
-          if (existingLiveLocation?.isStale) {
-            this.locationBroadcastService.broadcastEmployeeStatusUpdate(
-              user.companyId,
-              user.employeeId,
-              {
-                employeeId: user.employeeId,
-                isStale: false,
-                status,
-              },
-            );
+              // If was stale before, broadcast status update
+              if (existingLiveLocation?.isStale) {
+                this.locationBroadcastService.broadcastEmployeeStatusUpdate(
+                  user.companyId,
+                  user.employeeId,
+                  {
+                    employeeId: user.employeeId,
+                    isStale: false,
+                    status,
+                  },
+                );
+              }
+            }
           }
-        }
+        });
+      } finally {
+        await session.endSession();
       }
     } else {
       // Even if no new points, update lastUpdatedAt to prevent stale status

@@ -16,6 +16,7 @@ import type {
 } from "../types";
 import { CONFIG } from "../config";
 import { useAuth } from "./AuthContext";
+import { extractErrorMessage } from "../utils/error";
 
 const CrmContext = createContext<{
   employees: LiveEmployee[];
@@ -70,7 +71,14 @@ export const CrmProvider = ({ children }: { children: React.ReactNode }) => {
         logout();
         throw new Error("Unauthorized");
       }
-      if (!response.ok) throw new Error("Failed to fetch employees");
+      if (!response.ok) {
+        let msg = 'Failed to fetch employees';
+        try {
+          const err = await response.json();
+          msg = extractErrorMessage(err, msg);
+        } catch {}
+        throw new Error(msg);
+      }
       const data = await response.json();
       return data.data as LiveEmployee[];
     },
@@ -96,8 +104,15 @@ export const CrmProvider = ({ children }: { children: React.ReactNode }) => {
         logout();
         throw new Error("Unauthorized");
       }
-      if (!response.ok) throw new Error("Failed to fetch timeline");
-      const data = await response.json();
+        if (!response.ok) {
+          let msg = 'Failed to fetch timeline';
+          try {
+            const err = await response.json();
+            msg = extractErrorMessage(err, msg);
+          } catch {}
+          throw new Error(msg);
+        }
+        const data = await response.json();
       return data.data as TimelineResponse;
     },
     enabled: !!user && !!selectedEmployeeId,
@@ -120,7 +135,14 @@ export const CrmProvider = ({ children }: { children: React.ReactNode }) => {
         logout();
         throw new Error("Unauthorized");
       }
-      if (!response.ok) throw new Error("Failed to rebuild timeline");
+        if (!response.ok) {
+          let msg = 'Failed to rebuild timeline';
+          try {
+            const err = await response.json();
+            msg = extractErrorMessage(err, msg);
+          } catch {}
+          throw new Error(msg);
+        }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({

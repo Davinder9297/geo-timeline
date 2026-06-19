@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { CONFIG } from "@/config";
+import { extractErrorMessage } from "../utils/error";
 import { UserState, UserRole } from "../types";
 
 interface AuthContextType {
@@ -50,7 +51,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       body: JSON.stringify({ companyId, employeeId, password }),
     });
 
-    if (!response.ok) throw new Error("Login failed");
+    if (!response.ok) {
+      let msg = 'Login failed';
+      try {
+        const err = await response.json();
+        msg = extractErrorMessage(err, msg);
+      } catch {}
+      throw new Error(msg);
+    }
 
     const data = await response.json();
     console.log("[AuthContext] Login response:", data);

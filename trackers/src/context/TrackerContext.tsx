@@ -130,6 +130,32 @@ export const TrackerProvider = ({
     enabled: !!user,
   });
 
+  // Helper to extract friendly message from various backend error shapes
+  const extractErrorMessage = (err: unknown, defaultMsg: string) => {
+    if (!err) return defaultMsg;
+    if (typeof err === 'string') return err;
+    // New global filter: { success: false, error: { statusCode, message, error } }
+    if (typeof err === 'object' && err !== null) {
+      const obj = err as Record<string, unknown>;
+      if (obj.error) {
+        const e = obj.error;
+        if (typeof e === 'string') return e;
+        if (typeof e === 'object' && e !== null) {
+          const eo = e as Record<string, unknown>;
+          if ('message' in eo) {
+            const m = eo['message'];
+            return Array.isArray(m) ? m.join('; ') : String(m);
+          }
+        }
+      }
+      if ('message' in obj) {
+        const m = obj.message;
+        return Array.isArray(m) ? m.join('; ') : String(m);
+      }
+    }
+    return defaultMsg;
+  };
+
   const createAttendanceMutation = useMutation({
     mutationFn: async () => {
       if (!user) throw new Error("Not authenticated");
@@ -143,8 +169,15 @@ export const TrackerProvider = ({
           },
         }
       );
-      if (!response.ok) throw new Error("Failed to create attendance");
-      return await response.json() as CreateAttendanceResponse;
+      if (!response.ok) {
+        let msg = 'Failed to create attendance';
+        try {
+          const err = await response.json();
+          msg = extractErrorMessage(err, msg);
+        } catch {}
+        throw new Error(msg);
+      }
+      return (await response.json()) as CreateAttendanceResponse;
     },
     onSuccess: async (data) => {
       queryClient.setQueryData(['attendances'], (old: AttendanceDaily[] | undefined) => 
@@ -170,8 +203,15 @@ export const TrackerProvider = ({
           },
         }
       );
-      if (!response.ok) throw new Error("Failed to check out");
-      return await response.json() as CheckOutAttendanceResponse;
+      if (!response.ok) {
+        let msg = 'Failed to check out';
+        try {
+          const err = await response.json();
+          msg = extractErrorMessage(err, msg);
+        } catch {}
+        throw new Error(msg);
+      }
+      return (await response.json()) as CheckOutAttendanceResponse;
     },
     onSuccess: async (data) => {
       queryClient.setQueryData(['attendances'], (old: AttendanceDaily[] | undefined) => 
@@ -193,7 +233,14 @@ export const TrackerProvider = ({
           },
         }
       );
-      if (!response.ok) throw new Error("Failed to start tracking");
+      if (!response.ok) {
+        let msg = 'Failed to start tracking';
+        try {
+          const err = await response.json();
+          msg = extractErrorMessage(err, msg);
+        } catch {}
+        throw new Error(msg);
+      }
       return (await response.json()) as StartTrackingResponse;
     },
   });
@@ -211,7 +258,14 @@ export const TrackerProvider = ({
           },
         }
       );
-      if (!response.ok) throw new Error("Failed to stop tracking");
+      if (!response.ok) {
+        let msg = 'Failed to stop tracking';
+        try {
+          const err = await response.json();
+          msg = extractErrorMessage(err, msg);
+        } catch {}
+        throw new Error(msg);
+      }
     },
   });
 
@@ -230,7 +284,14 @@ export const TrackerProvider = ({
           body: JSON.stringify(batch),
         }
       );
-      if (!response.ok) throw new Error("Batch upload failed");
+      if (!response.ok) {
+        let msg = 'Batch upload failed';
+        try {
+          const err = await response.json();
+          msg = extractErrorMessage(err, msg);
+        } catch {}
+        throw new Error(msg);
+      }
       return (await response.json()) as BatchLocationPointsResponse;
     },
     onMutate: () => {
