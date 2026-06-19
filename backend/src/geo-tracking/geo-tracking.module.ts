@@ -22,6 +22,7 @@ import { Employee, EmployeeSchema } from './schemas/employee.schema';
 import { GeoTrackingController } from './geo-tracking.controller';
 import { CrmController } from './crm.controller';
 import { AuthController } from './auth.controller';
+import { AdminController } from './admin.controller';
 import { GeoTrackingService } from './geo-tracking.service';
 import { AuthService } from './auth.service';
 import { TimelineCalculatorService } from './timeline-calculator.service';
@@ -55,7 +56,7 @@ import {
       { name: Employee.name, schema: EmployeeSchema },
     ]),
   ],
-  controllers: [GeoTrackingController, CrmController, AuthController],
+  controllers: [GeoTrackingController, CrmController, AuthController, AdminController],
   providers: [
     GeoTrackingService,
     AuthService,

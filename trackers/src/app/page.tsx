@@ -211,7 +211,7 @@ export default function Home() {
             <div className="bg-gray-50 dark:bg-slate-800/50 p-4 rounded-md border border-gray-100 dark:border-slate-800">
               <h3 className="font-semibold mb-2 text-gray-900 dark:text-slate-100">Recent Attendances</h3>
               <div className="space-y-2">
-                {attendances.slice(0, 5).map((attendance) => (
+                {attendances.map((attendance) => (
                   <div
                     key={attendance._id}
                     className={`p-3 rounded-md cursor-pointer transition-colors ${

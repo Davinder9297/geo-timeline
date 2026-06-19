@@ -128,7 +128,7 @@ export class GeoTrackingService {
           sessions: attendance.sessions,
         },
       },
-      { new: true },
+      { returnDocument: 'after' },
     );
 
     if (!updatedAttendance) {
@@ -366,7 +366,7 @@ export class GeoTrackingService {
                   lastUpdatedAt: new Date(),
                 },
               },
-              { upsert: true, new: true },
+              { upsert: true, returnDocument: 'after' },
             );
 
           lastUpdatedAt = updatedLiveLocation.lastUpdatedAt;
@@ -415,7 +415,7 @@ export class GeoTrackingService {
               lastUpdatedAt: new Date(),
             },
           },
-          { new: true },
+          { returnDocument: 'after' },
         );
       lastUpdatedAt = existingLiveLocation?.lastUpdatedAt || null;
 

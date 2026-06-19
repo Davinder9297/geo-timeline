@@ -83,8 +83,8 @@ export const TrackerProvider = ({
   const watcherRef = useRef<number | null>(null);
   const sequenceRef = useRef<number>(0);
   const lastLocationRef = useRef<{ lat: number; lon: number } | null>(null);
+  const lastQueuedPointRef = useRef<LocationPointDto | null>(null);
   const batchIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const stationaryIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const retryBackoffRef = useRef<number>(1000);
   const userRef = useRef<UserState | null>(null);
   const queueRef = useRef<LocationPointDto[]>([]);
@@ -101,6 +101,7 @@ export const TrackerProvider = ({
   const [lastError, setLastError] = useState<string | null>(null);
   const [selectedAttendance, setSelectedAttendance] = useState<AttendanceDaily | undefined>();
   const [totalDistance, setTotalDistance] = useState(0); // Total distance in meters
+  const [lastAccuracy, setLastAccuracy] = useState<number | null>(null);
 
   // Keep refs updated
   useEffect(() => {
@@ -315,13 +316,6 @@ export const TrackerProvider = ({
     }
   };
 
-  const stopStationaryInterval = () => {
-    if (stationaryIntervalRef.current) {
-      clearInterval(stationaryIntervalRef.current);
-      stationaryIntervalRef.current = null;
-    }
-  };
-
   const getNetworkType = (): string => {
     if ("connection" in navigator) {
       const conn = navigator.connection;
@@ -346,6 +340,60 @@ export const TrackerProvider = ({
     return document.visibilityState === "visible" ? "FOREGROUND" : "BACKGROUND";
   };
 
+  const shouldAcceptPoint = useCallback(
+    (
+      latitude: number,
+      longitude: number,
+      accuracy: number,
+      capturedAt: string,
+    ) => {
+      if (!lastLocationRef.current) return true;
+
+      const distance = haversineDistance(
+        lastLocationRef.current.lat,
+        lastLocationRef.current.lon,
+        latitude,
+        longitude,
+      );
+
+      // Hard distance filter: reject if not enough movement
+      if (distance < CONFIG.DISTANCE_FILTER_METERS) {
+        return false;
+      }
+
+      // Check against last queued point
+      if (
+        lastQueuedPointRef.current &&
+        lastQueuedPointRef.current.latitude === latitude &&
+        lastQueuedPointRef.current.longitude === longitude &&
+        lastQueuedPointRef.current.accuracyM === accuracy
+      ) {
+        return false;
+      }
+
+      // Check against queue tail (handles race condition with simultaneous calls)
+      if (queueRef.current.length > 0) {
+        const queueTail = queueRef.current[queueRef.current.length - 1];
+        if (
+          queueTail.latitude === latitude &&
+          queueTail.longitude === longitude &&
+          queueTail.accuracyM === accuracy &&
+          queueTail.capturedAt === capturedAt
+        ) {
+          return false;
+        }
+      }
+
+      // Reject accuracy spikes
+      if (accuracy > 100 && lastAccuracy !== null && accuracy > lastAccuracy * 2) {
+        return false;
+      }
+
+      return true;
+    },
+    [lastAccuracy],
+  );
+
 const addLocationToQueue = useCallback(async (
   latitude: number,
   longitude: number,
@@ -357,28 +405,19 @@ const addLocationToQueue = useCallback(async (
   const currentUser = userRef.current;
   if (!currentUser || !currentUser.attendanceId) return;
 
-  // ✅ Distance check now lives here, so EVERY caller respects it
-  if (
-    !bypassDistanceFilter &&
-    lastLocationRef.current &&
-    haversineDistance(
-      lastLocationRef.current.lat,
-      lastLocationRef.current.lon,
-      latitude,
-      longitude
-    ) < CONFIG.DISTANCE_FILTER_METERS
-  ) {
+  const capturedAt = new Date().toISOString();
+
+  if (!bypassDistanceFilter && !shouldAcceptPoint(latitude, longitude, accuracy, capturedAt)) {
     return;
   }
 
-  const capturedAt = new Date().toISOString();
   const batteryPercent = await getBatteryPercent();
   const appState = getAppState();
   const networkType = getNetworkType();
 
   const point: LocationPointDto = {
     clientPointId: generateClientPointId(),
-    sequenceNo: sequenceRef.current++,
+    sequenceNo: sequenceRef.current,
     capturedAt,
     latitude,
     longitude,
@@ -391,27 +430,31 @@ const addLocationToQueue = useCallback(async (
     isMocked: false,
   };
 
-  // Calculate and add distance if we have a previous point
-  if (lastLocationRef.current) {
-    const distance = haversineDistance(
-      lastLocationRef.current.lat,
-      lastLocationRef.current.lon,
-      latitude,
-      longitude
-    );
-    if (distance > 0) {
-      setTotalDistance((prev) => prev + distance);
-    }
+  sequenceRef.current += 1;
+
+  const distanceFromLastAccepted = lastLocationRef.current
+    ? haversineDistance(
+        lastLocationRef.current.lat,
+        lastLocationRef.current.lon,
+        latitude,
+        longitude,
+      )
+    : 0;
+
+  if (lastLocationRef.current && distanceFromLastAccepted > 0) {
+    setTotalDistance((prev) => prev + distanceFromLastAccepted);
   }
 
   setQueue((prev) => [...prev, point]);
   queueRef.current = [...queueRef.current, point];
   lastLocationRef.current = { lat: latitude, lon: longitude };
+  lastQueuedPointRef.current = point;
+  setLastAccuracy(accuracy);
 
   if (queueRef.current.length >= CONFIG.BATCH_SIZE) {
     flushQueue();
   }
-}, [flushQueue]);
+}, [flushQueue, shouldAcceptPoint]);
 
   const getCurrentLocation = useCallback(() => {
     navigator.geolocation.getCurrentPosition(
@@ -490,7 +533,6 @@ const handlePosition = useCallback(
     setTotalDistance(0); // Reset total distance
     stopWatcher();
     stopBatchInterval();
-    stopStationaryInterval();
   };
 
   const startTracking = async () => {
@@ -498,6 +540,13 @@ const handlePosition = useCallback(
     try {
       await startTrackingMutation.mutateAsync();
       setTrackingState("active");
+
+      // Reset stale state when starting a fresh tracking session
+      if (queueRef.current.length === 0) {
+        lastLocationRef.current = null;
+        lastQueuedPointRef.current = null;
+        setLastAccuracy(null);
+      }
 
       // Get current location immediately
       getCurrentLocation();
@@ -515,11 +564,6 @@ const handlePosition = useCallback(
       batchIntervalRef.current = setInterval(() => {
         flushQueue(true); // Allow sending empty batches as heartbeat
       }, CONFIG.BATCH_INTERVAL_MS);
-
-      // Send periodic update every 3 minutes (more frequent to prevent stale status)
-      stationaryIntervalRef.current = setInterval(() => {
-        getCurrentLocation();
-      }, 3 * 60 * 1000);
     } catch (error) {
       setLastError(`Start tracking error: ${(error as Error).message}`);
     }
@@ -531,9 +575,11 @@ const handlePosition = useCallback(
     setTrackingState("idle"); // Reset to idle so we can start again
     stopWatcher();
     stopBatchInterval();
-    stopStationaryInterval();
 
     await flushQueue();
+    lastLocationRef.current = null;
+    lastQueuedPointRef.current = null;
+    setLastAccuracy(null);
 
     try {
       await stopTrackingMutation.mutateAsync();
@@ -570,6 +616,10 @@ const handlePosition = useCallback(
       queueRef.current = savedQueue;
       const maxSeq = Math.max(...savedQueue.map((p) => p.sequenceNo));
       sequenceRef.current = maxSeq + 1;
+      const lastPoint = savedQueue[savedQueue.length - 1];
+      lastLocationRef.current = { lat: lastPoint.latitude, lon: lastPoint.longitude };
+      lastQueuedPointRef.current = lastPoint;
+      setLastAccuracy(lastPoint.accuracyM);
     }
     setTrackingState(savedTrackingState);
     setIsHydrated(true);
@@ -588,7 +638,6 @@ const handlePosition = useCallback(
       window.removeEventListener("online", handleOnline);
       stopWatcher();
       stopBatchInterval();
-      stopStationaryInterval();
     };
   }, [flushQueue]);
 
@@ -612,16 +661,10 @@ const handlePosition = useCallback(
       batchIntervalRef.current = setInterval(() => {
         flushQueue(true); // Allow sending empty batches as heartbeat
       }, CONFIG.BATCH_INTERVAL_MS);
-
-      // Send periodic update every 3 minutes (more frequent to prevent stale status)
-      stationaryIntervalRef.current = setInterval(() => {
-        getCurrentLocation();
-      }, 3 * 60 * 1000);
     } else if (isHydrated) {
       // Stop everything if not active (only after hydration)
       stopWatcher();
       stopBatchInterval();
-      stopStationaryInterval();
     }
   }, [isHydrated, trackingState, user, handlePosition, handlePositionError, flushQueue, getCurrentLocation]);
 

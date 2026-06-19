@@ -570,7 +570,7 @@ export class TimelineCalculatorService {
             lastComputedAt: new Date(),
           },
         },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: 'after' },
       );
 
     // Broadcast timeline recomputed
