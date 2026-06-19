@@ -151,7 +151,7 @@ export class GeoTrackingService {
     return updatedAttendance;
   }
 
-  async getTrackingConfig(
+  async startTracking(
     attendanceId: string,
     user: AuthenticatedUser,
   ): Promise<{
@@ -177,6 +177,20 @@ export class GeoTrackingService {
       attendance.status !== AttendanceStatus.ON_BREAK
     ) {
       throw new ConflictException('Attendance is not active');
+    }
+
+    const latestSession = attendance.sessions[attendance.sessions.length - 1];
+    if (latestSession) {
+      const lastBreak = latestSession.breaks[latestSession.breaks.length - 1];
+      if (lastBreak && !lastBreak.endAt) {
+        lastBreak.endAt = new Date();
+      }
+    }
+
+    if (attendance.status === AttendanceStatus.ON_BREAK) {
+      attendance.status = AttendanceStatus.WORKING;
+      attendance.trackingStoppedAt = undefined;
+      await attendance.save();
     }
 
     const config = this.configService.get('geoTracking');
@@ -459,12 +473,25 @@ export class GeoTrackingService {
       throw new NotFoundException('Attendance not found');
     }
 
-    if (!attendance.trackingStoppedAt) {
-      await this.attendanceDailyModel.findByIdAndUpdate(attendanceId, {
-        $set: { trackingStoppedAt: new Date() },
-      });
+    if (attendance.status === AttendanceStatus.WORKING) {
+      const latestSession = attendance.sessions[attendance.sessions.length - 1];
+      if (latestSession) {
+        const lastBreak = latestSession.breaks[latestSession.breaks.length - 1];
+        if (!lastBreak || lastBreak.endAt) {
+          latestSession.breaks.push({
+            breakId: uuidv4(),
+            startAt: new Date(),
+          });
+        }
+      }
+      attendance.status = AttendanceStatus.ON_BREAK;
     }
 
+    if (!attendance.trackingStoppedAt) {
+      attendance.trackingStoppedAt = new Date();
+    }
+
+    await attendance.save();
     await this.timelineRebuildQueue.enqueueRebuild(attendanceId);
   }
 

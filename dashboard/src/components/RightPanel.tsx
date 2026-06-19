@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { useCrm } from "@/context/CrmContext";
 import { formatTime, formatDistance } from "@/utils";
@@ -13,10 +13,14 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
     selectedDate,
     setSelectedDate,
     rebuildTimeline,
+    isPlaying,
+    setIsPlaying,
+    playbackSpeed,
+    setPlaybackSpeed,
+    playbackTime,
+    setPlaybackTime,
+    timelineDurationSeconds,
   } = useCrm();
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playbackSpeed, setPlaybackSpeed] = useState(1);
-  const [playbackTime, setPlaybackTime] = useState(0);
   const animationRef = useRef<number | null>(null);
 
   const handlePlayPause = () => {
@@ -38,7 +42,13 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
     const animate = (time: number) => {
       const delta = time - lastTime;
       lastTime = time;
-      setPlaybackTime((prev) => prev + delta * playbackSpeed / 1000);
+      const next = playbackTime + (delta * playbackSpeed) / 1000;
+      if (timelineDurationSeconds > 0 && next >= timelineDurationSeconds) {
+        setIsPlaying(false);
+        setPlaybackTime(timelineDurationSeconds);
+      } else {
+        setPlaybackTime(next);
+      }
       animationRef.current = requestAnimationFrame(animate);
     };
     animationRef.current = requestAnimationFrame(animate);
@@ -46,7 +56,7 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
     return () => {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [isPlaying, playbackSpeed]);
+  }, [isPlaying, playbackSpeed, playbackTime, timelineDurationSeconds, setIsPlaying, setPlaybackTime]);
 
   return (
     <div className={`w-full lg:w-96 border-l border-gray-200 dark:border-slate-800 flex flex-col bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 ${className}`}>
@@ -82,30 +92,54 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
         {!loadingTimeline && !errorTimeline && timeline && timeline.summaryAvailable && (
           <>
             <div>
-              <h3 className="text-sm font-semibold text-gray-800 dark:text-slate-200 mb-3">Totals</h3>
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-slate-200 mb-3">Summary</h3>
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-gray-50 dark:bg-slate-800/50 p-3 rounded-md border border-gray-100 dark:border-slate-800/30">
                   <div className="text-xs text-gray-500 dark:text-slate-400 mb-1">Distance</div>
-                  <div className="text-lg font-bold text-gray-900 dark:text-slate-100">
+                  <div className="text-base font-bold text-gray-900 dark:text-slate-100">
                     {formatDistance(timeline.totals?.processedDistanceMeters || 0)}
                   </div>
                 </div>
                 <div className="bg-gray-50 dark:bg-slate-800/50 p-3 rounded-md border border-gray-100 dark:border-slate-800/30">
-                  <div className="text-xs text-gray-500 dark:text-slate-400 mb-1">Working</div>
-                  <div className="text-lg font-bold text-gray-900 dark:text-slate-100">
+                  <div className="text-xs text-gray-500 dark:text-slate-400 mb-1">GPS Quality</div>
+                  <div className="text-base font-bold text-gray-900 dark:text-slate-100">
+                    {Math.round(timeline.totals?.gpsQualityScore || 0)}%
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-slate-200 mb-3">Time Breakdown</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md border border-blue-100 dark:border-blue-900/30">
+                  <div className="text-xs text-blue-600 dark:text-blue-400 mb-1">Working</div>
+                  <div className="text-base font-bold text-blue-900 dark:text-blue-100">
                     {formatTime(timeline.totals?.workingSeconds || 0)}
                   </div>
                 </div>
-                <div className="bg-gray-50 dark:bg-slate-800/50 p-3 rounded-md border border-gray-100 dark:border-slate-800/30">
-                  <div className="text-xs text-gray-500 dark:text-slate-400 mb-1">Break</div>
-                  <div className="text-lg font-bold text-gray-900 dark:text-slate-100">
+                <div className="bg-orange-50 dark:bg-orange-900/20 p-3 rounded-md border border-orange-100 dark:border-orange-900/30">
+                  <div className="text-xs text-orange-600 dark:text-orange-400 mb-1">Break</div>
+                  <div className="text-base font-bold text-orange-900 dark:text-orange-100">
                     {formatTime(timeline.totals?.breakSeconds || 0)}
                   </div>
                 </div>
-                <div className="bg-gray-50 dark:bg-slate-800/50 p-3 rounded-md border border-gray-100 dark:border-slate-800/30">
-                  <div className="text-xs text-gray-500 dark:text-slate-400 mb-1">GPS Quality</div>
-                  <div className="text-lg font-bold text-gray-900 dark:text-slate-100">
-                    {Math.round(timeline.totals?.gpsQualityScore || 0)}%
+                <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-md border border-green-100 dark:border-green-900/30">
+                  <div className="text-xs text-green-600 dark:text-green-400 mb-1">Moving</div>
+                  <div className="text-base font-bold text-green-900 dark:text-green-100">
+                    {formatTime(timeline.totals?.movingSeconds || 0)}
+                  </div>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-800/30 p-3 rounded-md border border-slate-100 dark:border-slate-800/50">
+                  <div className="text-xs text-slate-600 dark:text-slate-400 mb-1">Hold (Stop)</div>
+                  <div className="text-base font-bold text-slate-900 dark:text-slate-100">
+                    {formatTime(timeline.totals?.holdSeconds || 0)}
+                  </div>
+                </div>
+                <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded-md border border-red-100 dark:border-red-900/30 col-span-2">
+                  <div className="text-xs text-red-600 dark:text-red-400 mb-1">Data Gap</div>
+                  <div className="text-base font-bold text-red-900 dark:text-red-100">
+                    {formatTime(timeline.totals?.dataGapSeconds || 0)}
                   </div>
                 </div>
               </div>
@@ -155,13 +189,13 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
               <input
                 type="range"
                 min={0}
-                max={100}
-                value={playbackTime % 100}
+                max={timelineDurationSeconds || 100}
+                value={Math.min(playbackTime, timelineDurationSeconds || 100)}
                 onChange={(e) => setPlaybackTime(Number(e.target.value))}
                 className="w-full h-2 bg-gray-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer"
               />
               <div className="text-xs text-gray-500 dark:text-slate-400 mt-2">
-                Current Time: {new Date(playbackTime * 1000).toISOString().substr(11, 8)}
+                Current Time: {new Date(Math.min(playbackTime, timelineDurationSeconds) * 1000).toISOString().substr(11, 8)}
               </div>
             </div>
           </>

@@ -30,6 +30,13 @@ const CrmContext = createContext<{
   selectedDate: string;
   setSelectedDate: (date: string) => void;
   rebuildTimeline: (attendanceId: string) => Promise<void>;
+  isPlaying: boolean;
+  setIsPlaying: (isPlaying: boolean) => void;
+  playbackSpeed: number;
+  setPlaybackSpeed: (speed: number) => void;
+  playbackTime: number;
+  setPlaybackTime: (seconds: number) => void;
+  timelineDurationSeconds: number;
 } | null>(null);
 
 export const CrmProvider = ({ children }: { children: React.ReactNode }) => {
@@ -41,6 +48,9 @@ export const CrmProvider = ({ children }: { children: React.ReactNode }) => {
   const [selectedDate, setSelectedDate] = useState<string>(
     new Date().toISOString().split("T")[0]
   );
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [playbackTime, setPlaybackTime] = useState(0);
   const socketRef = useRef<Socket | null>(null);
 
   const employeesQuery = useQuery({
@@ -130,6 +140,7 @@ export const CrmProvider = ({ children }: { children: React.ReactNode }) => {
     [rebuildTimelineMutation]
   );
 
+
   useEffect(() => {
     if (!user) {
       socketRef.current?.disconnect();
@@ -172,6 +183,16 @@ export const CrmProvider = ({ children }: { children: React.ReactNode }) => {
   const selectedEmployee =
     employeesQuery.data?.find((e) => e.employeeId === selectedEmployeeId) || null;
 
+  const timelineDurationSeconds = React.useMemo(() => {
+    if (timelineQuery.data?.rawPoints?.length && timelineQuery.data.rawPoints.length > 0) {
+      const points = timelineQuery.data.rawPoints;
+      const first = new Date(points[0].capturedAt).getTime();
+      const last = new Date(points[points.length - 1].capturedAt).getTime();
+      return Math.max(0, (last - first) / 1000);
+    }
+    return 0;
+  }, [timelineQuery.data]);
+
   return (
     <CrmContext.Provider
       value={{
@@ -187,6 +208,13 @@ export const CrmProvider = ({ children }: { children: React.ReactNode }) => {
         selectedDate,
         setSelectedDate,
         rebuildTimeline,
+        isPlaying,
+        setIsPlaying,
+        playbackSpeed,
+        setPlaybackSpeed,
+        playbackTime,
+        setPlaybackTime,
+        timelineDurationSeconds,
       }}
     >
       {children}

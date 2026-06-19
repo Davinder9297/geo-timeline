@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { MarkerClusterer } from "@googlemaps/markerclusterer";
 import { CONFIG } from "@/config";
 import { useCrm } from "@/context/CrmContext";
-import { LiveLocationStatus } from "@/types";
+import { LiveLocationStatus, RawLocationPoint } from "@/types";
 import { decodePolyline } from "@/utils";
 
 declare global {
@@ -31,7 +31,7 @@ const getMarkerColor = (status: LiveLocationStatus, isStale: boolean) => {
 };
 
 export const Map = () => {
-  const { employees, selectedEmployee, timeline } = useCrm();
+  const { employees, selectedEmployee, timeline, playbackTime } = useCrm();
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
@@ -39,6 +39,7 @@ export const Map = () => {
   const polylinesRef = useRef<google.maps.Polyline[]>([]);
   const playbackMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
   const sequenceMarkersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
+  const rawPointsRef = useRef<RawLocationPoint[]>([]);
   const [showRaw, setShowRaw] = useState(false);
   const [showSequenceMarkers, setShowSequenceMarkers] = useState(true);
   const [mapsLoaded, setMapsLoaded] = useState(false);
@@ -184,6 +185,7 @@ export const Map = () => {
         map: mapInstanceRef.current,
         content: playbackMarkerElement,
       });
+      rawPointsRef.current = timeline.rawPoints || [];
     }
 
     // Render sequence markers if enabled
@@ -214,6 +216,34 @@ export const Map = () => {
       });
     }
   }, [timeline, showRaw, showSequenceMarkers, mapsLoaded]);
+
+  useEffect(() => {
+    if (!timeline || !playbackMarkerRef.current || rawPointsRef.current.length === 0) {
+      return;
+    }
+
+    const points = rawPointsRef.current;
+    const firstTime = new Date(points[0].capturedAt).getTime();
+    const targetTime = firstTime + playbackTime * 1000;
+
+    let nearest = points[0];
+    for (let i = 0; i < points.length; i += 1) {
+      const pointTime = new Date(points[i].capturedAt).getTime();
+      if (pointTime <= targetTime) {
+        nearest = points[i];
+      } else {
+        break;
+      }
+    }
+
+    playbackMarkerRef.current.position = {
+      lat: nearest.latitude,
+      lng: nearest.longitude,
+    };
+    if (playbackMarkerRef.current.content instanceof HTMLElement) {
+      playbackMarkerRef.current.content.title = `Playback - Seq ${nearest.sequenceNo}`;
+    }
+  }, [playbackTime, timeline]);
 
   return (
     <div className="flex-1 h-full relative">

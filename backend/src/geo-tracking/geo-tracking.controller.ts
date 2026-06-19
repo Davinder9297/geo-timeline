@@ -46,7 +46,7 @@ export class GeoTrackingController {
     @Param('attendanceId') attendanceId: string,
     @Request() req: RequestWithUser,
   ) {
-    const data = await this.geoTrackingService.getTrackingConfig(
+    const data = await this.geoTrackingService.startTracking(
       attendanceId,
       req.user,
     );
