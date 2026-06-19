@@ -21,7 +21,7 @@ const getStatusColor = (status: LiveLocationStatus, isStale: boolean) => {
   }
 };
 
-export const LeftPanel = () => {
+export const LeftPanel = ({ className = "" }: { className?: string }) => {
   const {
     employees,
     loadingEmployees,
@@ -39,22 +39,22 @@ export const LeftPanel = () => {
   });
 
   return (
-    <div className="w-72 border-r border-gray-200 flex flex-col bg-white">
-      <div className="p-4 border-b border-gray-200">
-        <h2 className="text-lg font-semibold mb-3">Employees</h2>
+    <div className={`w-full lg:w-72 border-r border-gray-200 dark:border-slate-800 flex flex-col bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 ${className}`}>
+      <div className="p-4 border-b border-gray-200 dark:border-slate-800">
+        <h2 className="text-lg font-semibold mb-3 text-gray-900 dark:text-slate-100">Employees</h2>
         <input
           type="text"
           placeholder="Search employees..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white rounded-md text-sm placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:border-blue-500"
         />
       </div>
 
       <div className="p-3 flex flex-wrap gap-2">
         <button
           onClick={() => setStatusFilter("all")}
-          className={`px-3 py-1 text-xs rounded-full border ${statusFilter === "all" ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-300 bg-white text-gray-700"}`}
+          className={`px-3 py-1 text-xs rounded-full border ${statusFilter === "all" ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300" : "border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700/50"}`}
         >
           All
         </button>
@@ -62,7 +62,7 @@ export const LeftPanel = () => {
           <button
             key={status}
             onClick={() => setStatusFilter(status)}
-            className={`px-3 py-1 text-xs rounded-full border ${statusFilter === status ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-300 bg-white text-gray-700"}`}
+            className={`px-3 py-1 text-xs rounded-full border ${statusFilter === status ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300" : "border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700/50"}`}
           >
             {status}
           </button>
@@ -71,13 +71,13 @@ export const LeftPanel = () => {
 
       <div className="flex-1 overflow-y-auto">
         {loadingEmployees && (
-          <div className="p-4 text-center text-gray-500">Loading employees...</div>
+          <div className="p-4 text-center text-gray-500 dark:text-slate-400">Loading employees...</div>
         )}
         {errorEmployees && (
-          <div className="p-4 text-center text-red-600">Error: {errorEmployees}</div>
+          <div className="p-4 text-center text-red-600 dark:text-red-400">Error: {errorEmployees}</div>
         )}
         {!loadingEmployees && !errorEmployees && filteredEmployees.length === 0 && (
-          <div className="p-4 text-center text-gray-500">No employees found</div>
+          <div className="p-4 text-center text-gray-500 dark:text-slate-400">No employees found</div>
         )}
         {filteredEmployees.map((emp) => {
           const statusStyle = getStatusColor(emp.status, emp.isStale);
@@ -85,15 +85,15 @@ export const LeftPanel = () => {
             <div
               key={emp.employeeId}
               onClick={() => selectEmployee(emp.employeeId)}
-              className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${selectedEmployeeId === emp.employeeId ? "bg-blue-50" : ""}`}
+              className={`p-4 border-b border-gray-100 dark:border-slate-800/50 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800/30 ${selectedEmployeeId === emp.employeeId ? "bg-blue-50 dark:bg-blue-900/20" : ""}`}
             >
               <div className="flex justify-between items-start">
-                <div className="font-medium">{emp.name}</div>
+                <div className="font-medium text-gray-900 dark:text-slate-100">{emp.name}</div>
                 <span className={`text-xs px-2 py-1 rounded-full ${statusStyle.bg} ${statusStyle.text} ${emp.isStale ? "opacity-70" : ""}`}>
                   {emp.status}
                 </span>
               </div>
-              <div className="text-xs text-gray-500 mt-1">
+              <div className="text-xs text-gray-500 dark:text-slate-400 mt-1">
                 Last seen: {formatDistanceToNow(new Date(emp.lastUpdatedAt), { addSuffix: true })}
               </div>
             </div>
