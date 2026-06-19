@@ -26,9 +26,9 @@ export default function Home() {
     isHydrated,
   } = useTracker();
 
-  const [employeeId, setEmployeeId] = useState("emp-001");
-  const [companyId, setCompanyId] = useState("acme-corp");
-  const [password, setPassword] = useState("employee123");
+  const [employeeId, setEmployeeId] = useState("");
+  const [companyId, setCompanyId] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
