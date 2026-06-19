@@ -511,6 +511,17 @@ const handlePosition = useCallback(
     employeeId: string,
     password: string
   ) => {
+    // Clear any persisted session state before logging in so new tracking starts fresh.
+    clearUser();
+    clearQueue();
+    clearTrackingState();
+    setUser(null);
+    setQueue([]);
+    queueRef.current = [];
+    setTrackingState("idle");
+    setLastError(null);
+    setTotalDistance(0);
+
     const response = await fetch(`${CONFIG.API_BASE_URL}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

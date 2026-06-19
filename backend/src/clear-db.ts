@@ -65,6 +65,26 @@ async function clearDb() {
     const locationPointResult = await locationPointModel.deleteMany({});
     console.log(`✓ Cleared LocationPoint: ${locationPointResult.deletedCount} documents`);
 
+    // Drop legacy index if it still exists, then sync schema indexes.
+    try {
+      const indexExists = await locationPointModel.collection.indexExists(
+        'deviceId_1_sequenceNo_1',
+      );
+      if (indexExists) {
+        await locationPointModel.collection.dropIndex(
+          'deviceId_1_sequenceNo_1',
+        );
+        console.log('✓ Dropped legacy LocationPoint index deviceId_1_sequenceNo_1');
+      }
+    } catch (indexError) {
+      console.warn(
+        '⚠️ Could not drop legacy LocationPoint index deviceId_1_sequenceNo_1:',
+        (indexError as Error).message,
+      );
+    }
+    await locationPointModel.syncIndexes();
+    console.log('✓ Synced LocationPoint schema indexes');
+
     // Clear EmployeeLiveLocation
     const liveLocationResult = await employeeLiveLocationModel.deleteMany({});
     console.log(`✓ Cleared EmployeeLiveLocation: ${liveLocationResult.deletedCount} documents`);

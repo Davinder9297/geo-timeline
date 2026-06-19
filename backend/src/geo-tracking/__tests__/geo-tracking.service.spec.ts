@@ -119,7 +119,7 @@ describe('GeoTrackingService', () => {
       expect(result.accepted).toBe(0);
     });
 
-    it('should mark points as duplicate if deviceId + sequenceNo exists', async () => {
+    it('should mark points as duplicate if deviceId + sequenceNo exists for the same attendance', async () => {
       const mockAttendance = {
         _id: 'att-1',
         employeeId: 'emp-1',
@@ -164,6 +164,53 @@ describe('GeoTrackingService', () => {
 
       expect(result.duplicates).toBe(1);
       expect(result.accepted).toBe(0);
+    });
+
+    it('should accept same deviceId + sequenceNo on different attendance', async () => {
+      const mockAttendance = {
+        _id: 'att-2',
+        employeeId: 'emp-1',
+        companyId: 'comp-1',
+        status: AttendanceStatus.WORKING,
+        sessions: [{ sessionId: 'ses-1' }],
+      } as AttendanceDaily;
+
+      attendanceDailyModel.findById.mockResolvedValue(mockAttendance);
+      configService.get.mockImplementation((key) => {
+        if (key === 'geoTracking.maxBatchSize') return 200;
+        if (key === 'geoTracking.poorAccuracyThresholdMeters') return 50;
+        return {};
+      });
+
+      locationPointModel.find
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+      locationPointModel.insertMany.mockResolvedValue([]);
+
+      const result = await service.batchInsertLocationPoints(
+        'att-2',
+        'dev-1',
+        [
+          {
+            clientPointId: 'cp-2',
+            sequenceNo: 1,
+            capturedAt: new Date().toISOString(),
+            latitude: 40.7128,
+            longitude: -74.006,
+            accuracyM: 10,
+            speedMps: 0,
+            heading: 0,
+            batteryPercent: 100,
+            networkType: 'wifi',
+            appState: 'FOREGROUND' as any,
+            isMocked: false,
+          },
+        ],
+        user,
+      );
+
+      expect(result.duplicates).toBe(0);
+      expect(result.accepted).toBe(1);
     });
   });
 

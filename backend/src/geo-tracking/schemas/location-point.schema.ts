@@ -88,5 +88,8 @@ export const LocationPointSchema = SchemaFactory.createForClass(LocationPoint);
 LocationPointSchema.index({ companyId: 1, employeeId: 1, capturedAt: 1 });
 LocationPointSchema.index({ attendanceId: 1, capturedAt: 1 });
 LocationPointSchema.index({ companyId: 1, capturedAt: 1 });
-LocationPointSchema.index({ deviceId: 1, sequenceNo: 1 }, { unique: true });
+LocationPointSchema.index(
+  { attendanceId: 1, deviceId: 1, sequenceNo: 1 },
+  { unique: true },
+);
 LocationPointSchema.index({ clientPointId: 1 }, { unique: true });

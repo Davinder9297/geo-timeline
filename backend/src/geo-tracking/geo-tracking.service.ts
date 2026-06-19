@@ -263,7 +263,7 @@ export class GeoTrackingService {
     );
 
     const existingByDeviceSequence = await this.locationPointModel
-      .find({ $or: deviceSequencePairs })
+      .find({ attendanceId, $or: deviceSequencePairs })
       .select('deviceId sequenceNo')
       .lean();
     const existingDeviceSequenceSet = new Set(
