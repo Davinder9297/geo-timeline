@@ -11,8 +11,11 @@ declare global {
   interface Window {
     gm_authFailure?: () => void;
     initGoogleMaps?: () => void;
+    google?: any;
   }
 }
+
+declare const google: any;
 
 const getMarkerColor = (status: LiveLocationStatus, isStale: boolean) => {
   if (isStale) return "#9E9E9E";
@@ -30,15 +33,64 @@ const getMarkerColor = (status: LiveLocationStatus, isStale: boolean) => {
   }
 };
 
+const buildPathSegments = (
+  path: { lat: number; lng: number }[],
+  maxDistanceMeters = 250,
+): { lat: number; lng: number }[][] => {
+  const segments: { lat: number; lng: number }[][] = [];
+  let currentSegment: { lat: number; lng: number }[] = [];
+
+  const googleObj = (window as any).google;
+  const distanceBetween = (
+    a: { lat: number; lng: number },
+    b: { lat: number; lng: number },
+  ) => {
+    if (!googleObj?.maps?.geometry?.spherical?.computeDistanceBetween) {
+      const latDiff = a.lat - b.lat;
+      const lngDiff = a.lng - b.lng;
+      return Math.sqrt(latDiff * latDiff + lngDiff * lngDiff) * 111_000;
+    }
+    return googleObj.maps.geometry.spherical.computeDistanceBetween(
+      new googleObj.maps.LatLng(a.lat, a.lng),
+      new googleObj.maps.LatLng(b.lat, b.lng),
+    );
+  };
+
+  for (let i = 0; i < path.length; i += 1) {
+    const point = path[i];
+    if (currentSegment.length === 0) {
+      currentSegment.push(point);
+      continue;
+    }
+
+    const prev = currentSegment[currentSegment.length - 1];
+    const distance = distanceBetween(prev, point);
+    if (distance > maxDistanceMeters) {
+      if (currentSegment.length > 1) {
+        segments.push(currentSegment);
+      }
+      currentSegment = [point];
+    } else {
+      currentSegment.push(point);
+    }
+  }
+
+  if (currentSegment.length > 1) {
+    segments.push(currentSegment);
+  }
+
+  return segments;
+};
+
 export const Map = () => {
   const { employees, selectedEmployee, timeline, playbackTime } = useCrm();
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
+  const mapInstanceRef = useRef<any>(null);
+  const markersRef = useRef<any[]>([]);
   const clustererRef = useRef<MarkerClusterer | null>(null);
-  const polylinesRef = useRef<google.maps.Polyline[]>([]);
-  const playbackMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
-  const sequenceMarkersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
+  const polylinesRef = useRef<any[]>([]);
+  const playbackMarkerRef = useRef<any>(null);
+  const sequenceMarkersRef = useRef<any[]>([]);
   const rawPointsRef = useRef<RawLocationPoint[]>([]);
   const [showRaw, setShowRaw] = useState(false);
   const [showSequenceMarkers, setShowSequenceMarkers] = useState(true);
@@ -63,8 +115,9 @@ export const Map = () => {
         script.src = scriptUrl;
         window.initGoogleMaps = () => {
           console.log("[Map] Google Maps loaded successfully!");
-          if (mapRef.current) {
-            const map = new google.maps.Map(mapRef.current, {
+          const googleObj = (window as any).google;
+          if (mapRef.current && googleObj) {
+            const map = new googleObj.maps.Map(mapRef.current, {
               zoom: 12,
               center: { lat: 40.7128, lng: -74.006 },
               ...(CONFIG.GOOGLE_MAPS_MAP_ID ? { mapId: CONFIG.GOOGLE_MAPS_MAP_ID } : {}),
@@ -74,16 +127,18 @@ export const Map = () => {
           }
         };
         document.body.appendChild(script);
-      } else if (typeof google !== "undefined" && google.maps && mapRef.current) {
-        console.log("[Map] Google Maps already loaded, creating map...");
-        // If already loaded
-        const map = new google.maps.Map(mapRef.current, {
-          zoom: 12,
-          center: { lat: 40.7128, lng: -74.006 },
-          ...(CONFIG.GOOGLE_MAPS_MAP_ID ? { mapId: CONFIG.GOOGLE_MAPS_MAP_ID } : {}),
-        });
-        mapInstanceRef.current = map;
-        setMapsLoaded(true);
+      } else {
+        const googleObj = (window as any).google;
+        if (googleObj?.maps && mapRef.current) {
+          console.log("[Map] Google Maps already loaded, creating map...");
+          const map = new googleObj.maps.Map(mapRef.current, {
+            zoom: 12,
+            center: { lat: 40.7128, lng: -74.006 },
+            ...(CONFIG.GOOGLE_MAPS_MAP_ID ? { mapId: CONFIG.GOOGLE_MAPS_MAP_ID } : {}),
+          });
+          mapInstanceRef.current = map;
+          setMapsLoaded(true);
+        }
       }
     };
     initMap();
@@ -104,7 +159,8 @@ export const Map = () => {
       markerElement.style.border = "2px solid white";
       markerElement.title = emp.name;
 
-      const marker = new google.maps.marker.AdvancedMarkerElement({
+      const googleObj = (window as any).google;
+      const marker = new googleObj.maps.marker.AdvancedMarkerElement({
         position: {
           lat: emp.lastLocation.latitude,
           lng: emp.lastLocation.longitude,
@@ -122,10 +178,11 @@ export const Map = () => {
     });
 
     if (employees.length > 0 && !selectedEmployee) {
-      const bounds = new google.maps.LatLngBounds();
+      const googleObj = (window as any).google;
+      const bounds = new googleObj.maps.LatLngBounds();
       employees.forEach((emp) =>
         bounds.extend(
-          new google.maps.LatLng(
+          new googleObj.maps.LatLng(
             emp.lastLocation.latitude,
             emp.lastLocation.longitude
           )
@@ -158,33 +215,43 @@ export const Map = () => {
       : timeline.processedRoute?.encodedProcessedPolyline;
     if (polyline) {
       const path = decodePolyline(polyline).map(([lat, lng]) => ({ lat, lng }));
-      const poly = new google.maps.Polyline({
-        path,
-        geodesic: true,
-        strokeColor: "#2196F3",
-        strokeOpacity: 0.8,
-        strokeWeight: 4,
+      const segments = buildPathSegments(path, 250);
+      const googleObj = (window as any).google;
+      const bounds = new googleObj.maps.LatLngBounds();
+
+      segments.forEach((segment) => {
+        const segmentPolyline = new googleObj.maps.Polyline({
+          path: segment,
+          geodesic: true,
+          strokeColor: "#2196F3",
+          strokeOpacity: 0.8,
+          strokeWeight: 4,
+        });
+        segmentPolyline.setMap(mapInstanceRef.current);
+        polylinesRef.current.push(segmentPolyline);
+        segment.forEach((p) => bounds.extend(new googleObj.maps.LatLng(p.lat, p.lng)));
       });
-      poly.setMap(mapInstanceRef.current);
-      polylinesRef.current.push(poly);
 
-      const bounds = new google.maps.LatLngBounds();
-      path.forEach((p) => bounds.extend(new google.maps.LatLng(p.lat, p.lng)));
-      mapInstanceRef.current?.fitBounds(bounds);
+      if (!bounds.isEmpty()) {
+        mapInstanceRef.current?.fitBounds(bounds);
+      }
 
-      const playbackMarkerElement = document.createElement("div");
-      playbackMarkerElement.style.width = "20px";
-      playbackMarkerElement.style.height = "20px";
-      playbackMarkerElement.style.borderRadius = "50%";
-      playbackMarkerElement.style.backgroundColor = "#2196F3";
-      playbackMarkerElement.style.border = "2px solid white";
-      playbackMarkerElement.title = "Playback";
+      if (path.length > 0) {
+        const playbackMarkerElement = document.createElement("div");
+        playbackMarkerElement.style.width = "20px";
+        playbackMarkerElement.style.height = "20px";
+        playbackMarkerElement.style.borderRadius = "50%";
+        playbackMarkerElement.style.backgroundColor = "#2196F3";
+        playbackMarkerElement.style.border = "2px solid white";
+        playbackMarkerElement.title = "Playback";
 
-      playbackMarkerRef.current = new google.maps.marker.AdvancedMarkerElement({
-        position: path[0],
-        map: mapInstanceRef.current,
-        content: playbackMarkerElement,
-      });
+        const googleObj = (window as any).google;
+        playbackMarkerRef.current = new googleObj.maps.marker.AdvancedMarkerElement({
+          position: path[0],
+          map: mapInstanceRef.current,
+          content: playbackMarkerElement,
+        });
+      }
       rawPointsRef.current = timeline.rawPoints || [];
     }
 
@@ -207,7 +274,8 @@ export const Map = () => {
         markerElement.textContent = point.sequenceNo.toString();
         markerElement.title = `Point #${point.sequenceNo} - ${new Date(point.capturedAt).toLocaleString()}`;
 
-        const marker = new google.maps.marker.AdvancedMarkerElement({
+        const googleObj = (window as any).google;
+        const marker = new googleObj.maps.marker.AdvancedMarkerElement({
           position: { lat: point.latitude, lng: point.longitude },
           map: mapInstanceRef.current,
           content: markerElement,

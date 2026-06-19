@@ -580,7 +580,7 @@ export class GeoTrackingService {
     // Get raw location points with sequence numbers
     const rawPointsDb = await this.locationPointModel
       .find({ attendanceId: attendanceIdString })
-      .sort({ sequenceNo: 1 })
+      .sort({ capturedAt: 1, sequenceNo: 1 })
       .select('location sequenceNo capturedAt')
       .lean();
 

@@ -183,9 +183,11 @@ export class TimelineCalculatorService {
   ): {
     points: ProcessedPoint[];
     impossibleJumpSegments: Set<string>;
+    anomalies: Anomaly[];
   } {
     const updatedPoints = [...points];
     const impossibleJumpSegments = new Set<string>();
+    const anomalies: Anomaly[] = [];
 
     for (let i = 1; i < updatedPoints.length; i++) {
       const prev = updatedPoints[i - 1];
@@ -208,12 +210,18 @@ export class TimelineCalculatorService {
           if (speed > maxSpeedMps) {
             updatedPoints[i].quality = PointQuality.ANOMALY;
             impossibleJumpSegments.add(`${i - 1}-${i}`);
+            anomalies.push({
+              type: 'IMPOSSIBLE_JUMP',
+              startAt: prev.capturedAt,
+              endAt: curr.capturedAt,
+              durationSeconds: timeDelta,
+            });
           }
         }
       }
     }
 
-    return { points: updatedPoints, impossibleJumpSegments };
+    return { points: updatedPoints, impossibleJumpSegments, anomalies };
   }
 
   /**
@@ -473,6 +481,72 @@ export class TimelineCalculatorService {
     };
   }
 
+  private perpendicularDistance(
+    point: [number, number],
+    lineStart: [number, number],
+    lineEnd: [number, number],
+  ): number {
+    const [lat, lng] = point;
+    const [startLat, startLng] = lineStart;
+    const [endLat, endLng] = lineEnd;
+
+    if (startLat === endLat && startLng === endLng) {
+      return this.haversineDistance(lat, lng, startLat, startLng);
+    }
+
+    const x0 = lat;
+    const y0 = lng;
+    const x1 = startLat;
+    const y1 = startLng;
+    const x2 = endLat;
+    const y2 = endLng;
+
+    const cross =
+      Math.abs((x2 - x1) * (y1 - y0) - (x1 - x0) * (y2 - y1));
+    const base = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+    const perpendicular = cross / base;
+
+    return perpendicular * 111320; // approximate conversion degrees to meters
+  }
+
+  private simplifyPoints(
+    points: ProcessedPoint[],
+    toleranceMeters: number,
+  ): ProcessedPoint[] {
+    if (points.length <= 2) return points;
+
+    const keep = new Array(points.length).fill(false);
+    keep[0] = true;
+    keep[points.length - 1] = true;
+
+    const simplifyRange = (startIndex: number, endIndex: number) => {
+      if (endIndex <= startIndex + 1) return;
+
+      let maxDistance = 0;
+      let maxIndex = startIndex;
+      const start = [points[startIndex].latitude, points[startIndex].longitude] as [number, number];
+      const end = [points[endIndex].latitude, points[endIndex].longitude] as [number, number];
+
+      for (let i = startIndex + 1; i < endIndex; i++) {
+        const current = [points[i].latitude, points[i].longitude] as [number, number];
+        const distance = this.perpendicularDistance(current, start, end);
+        if (distance > maxDistance) {
+          maxDistance = distance;
+          maxIndex = i;
+        }
+      }
+
+      if (maxDistance > toleranceMeters) {
+        keep[maxIndex] = true;
+        simplifyRange(startIndex, maxIndex);
+        simplifyRange(maxIndex, endIndex);
+      }
+    };
+
+    simplifyRange(0, points.length - 1);
+    return points.filter((_, index) => keep[index]);
+  }
+
   /**
    * Main entry point: calculate timeline and upsert summary
    */
@@ -504,8 +578,11 @@ export class TimelineCalculatorService {
     );
 
     // Step 6: Detect impossible jumps
-    const { points: pointsWithJumpsDetected, impossibleJumpSegments } =
-      this.detectImpossibleJumps(processedPoints, config.maxSpeedMps);
+    const {
+      points: pointsWithJumpsDetected,
+      impossibleJumpSegments,
+      anomalies: jumpAnomalies,
+    } = this.detectImpossibleJumps(processedPoints, config.maxSpeedMps);
     processedPoints = pointsWithJumpsDetected;
 
     // Step 7: Calculate distances
@@ -536,14 +613,17 @@ export class TimelineCalculatorService {
     const timelineEvents = this.buildTimelineEvents(attendance, stops);
 
     // Build anomalies array (DATA_GAP + IMPOSSIBLE_JUMP if any)
-    const anomalies: Anomaly[] = [...dataGaps];
+    const anomalies: Anomaly[] = [...dataGaps, ...jumpAnomalies].sort(
+      (a, b) => a.startAt.getTime() - b.startAt.getTime(),
+    );
 
     // Step 13: Build encoded polylines
     const goodPointsOnly = processedPoints.filter(
       (p) => p.quality === PointQuality.GOOD,
     );
+    const smoothedGoodPoints = this.simplifyPoints(goodPointsOnly, 8);
     const { encodedRawPolyline, encodedProcessedPolyline } =
-      this.buildEncodedPolylines(processedPoints, goodPointsOnly);
+      this.buildEncodedPolylines(processedPoints, smoothedGoodPoints);
 
     // Step 14: Upsert summary
     const updatedSummary =
