@@ -22,6 +22,7 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
     timelineDurationSeconds,
   } = useCrm();
   const animationRef = useRef<number | null>(null);
+  const playbackTimeRef = useRef<number>(playbackTime);
 
   const handlePlayPause = () => {
     setIsPlaying(!isPlaying);
@@ -33,7 +34,11 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
   };
 
   useEffect(() => {
-    if (!isPlaying) {
+    playbackTimeRef.current = playbackTime;
+  }, [playbackTime]);
+
+  useEffect(() => {
+    if (!isPlaying || timelineDurationSeconds <= 0) {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
       return;
     }
@@ -42,7 +47,9 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
     const animate = (time: number) => {
       const delta = time - lastTime;
       lastTime = time;
-      const next = playbackTime + (delta * playbackSpeed) / 1000;
+      const next = playbackTimeRef.current + (delta * playbackSpeed) / 1000;
+      playbackTimeRef.current = next;
+
       if (timelineDurationSeconds > 0 && next >= timelineDurationSeconds) {
         setIsPlaying(false);
         setPlaybackTime(timelineDurationSeconds);
@@ -56,7 +63,7 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
     return () => {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [isPlaying, playbackSpeed, playbackTime, timelineDurationSeconds, setIsPlaying, setPlaybackTime]);
+  }, [isPlaying, playbackSpeed, timelineDurationSeconds, setIsPlaying, setPlaybackTime]);
 
   return (
     <div className={`w-full lg:w-96 border-l border-gray-200 dark:border-slate-800 flex flex-col bg-white dark:bg-slate-900 text-gray-900 dark:text-gray-100 ${className}`}>
@@ -191,7 +198,11 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
                 min={0}
                 max={timelineDurationSeconds || 100}
                 value={Math.min(playbackTime, timelineDurationSeconds || 100)}
-                onChange={(e) => setPlaybackTime(Number(e.target.value))}
+                onChange={(e) => {
+                  const value = Number(e.target.value);
+                  playbackTimeRef.current = value;
+                  setPlaybackTime(value);
+                }}
                 className="w-full h-2 bg-gray-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer"
               />
               <div className="text-xs text-gray-500 dark:text-slate-400 mt-2">

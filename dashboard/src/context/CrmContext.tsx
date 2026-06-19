@@ -180,6 +180,17 @@ export const CrmProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, [user, queryClient, selectedEmployeeId, selectedDate]);
 
+  // Reset playback when switching employees or changing selected date/timeline
+  useEffect(() => {
+    // Reset playback time and stop playing so UI resets cleanly
+    // Defer with setTimeout to avoid synchronous state updates during render
+    const t = setTimeout(() => {
+      setIsPlaying(false);
+      setPlaybackTime(0);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [selectedEmployeeId, selectedDate]);
+
   const selectedEmployee =
     employeesQuery.data?.find((e) => e.employeeId === selectedEmployeeId) || null;
 

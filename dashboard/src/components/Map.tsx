@@ -213,8 +213,16 @@ export const Map = () => {
     const polyline = showRaw
       ? timeline.processedRoute?.encodedRawPolyline
       : timeline.processedRoute?.encodedProcessedPolyline;
+
+    // Build a path either from encoded polyline or fallback to rawPoints
+    let path: { lat: number; lng: number }[] = [];
     if (polyline) {
-      const path = decodePolyline(polyline).map(([lat, lng]) => ({ lat, lng }));
+      path = decodePolyline(polyline).map(([lat, lng]) => ({ lat, lng }));
+    } else if (timeline.rawPoints && timeline.rawPoints.length > 0) {
+      path = timeline.rawPoints.map((p: any) => ({ lat: p.latitude, lng: p.longitude }));
+    }
+
+    if (path.length > 0) {
       const segments = buildPathSegments(path, 250);
       const googleObj = (window as any).google;
       const bounds = new googleObj.maps.LatLngBounds();
@@ -236,22 +244,41 @@ export const Map = () => {
         mapInstanceRef.current?.fitBounds(bounds);
       }
 
-      if (path.length > 0) {
-        const playbackMarkerElement = document.createElement("div");
-        playbackMarkerElement.style.width = "20px";
-        playbackMarkerElement.style.height = "20px";
-        playbackMarkerElement.style.borderRadius = "50%";
-        playbackMarkerElement.style.backgroundColor = "#2196F3";
-        playbackMarkerElement.style.border = "2px solid white";
-        playbackMarkerElement.title = "Playback";
+      // Create playback marker and ensure it's on top
+      const playbackMarkerElement = document.createElement("div");
+      playbackMarkerElement.style.width = "20px";
+      playbackMarkerElement.style.height = "20px";
+      playbackMarkerElement.style.borderRadius = "50%";
+      playbackMarkerElement.style.backgroundColor = "#2196F3";
+      playbackMarkerElement.style.border = "2px solid white";
+      playbackMarkerElement.title = "Playback";
+      playbackMarkerElement.style.position = "relative";
+      playbackMarkerElement.style.zIndex = "9999";
 
-        const googleObj = (window as any).google;
-        playbackMarkerRef.current = new googleObj.maps.marker.AdvancedMarkerElement({
-          position: path[0],
-          map: mapInstanceRef.current,
-          content: playbackMarkerElement,
-        });
-      }
+      // reuse googleObj declared above
+      // Some marker implementations respect zIndex option; set both.
+      playbackMarkerRef.current = new googleObj.maps.marker.AdvancedMarkerElement({
+        position: path[0],
+        map: mapInstanceRef.current,
+        content: playbackMarkerElement,
+        zIndex: 9999,
+      });
+
+      // Reinforce marker visibility after a short delay since map panes
+      // or other markers may still be initializing on first load.
+      setTimeout(() => {
+        try {
+          if (playbackMarkerRef.current) {
+            playbackMarkerRef.current.map = mapInstanceRef.current;
+            if (playbackMarkerRef.current.content instanceof HTMLElement) {
+              playbackMarkerRef.current.content.style.zIndex = '9999';
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+      }, 150);
+
       rawPointsRef.current = timeline.rawPoints || [];
     }
 
