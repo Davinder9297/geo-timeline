@@ -11,10 +11,34 @@ import {
   EmployeeLiveLocation,
   LiveLocationStatus,
 } from '../schemas/employee-live-location.schema';
+import { AttendanceTimelineSummary } from '../schemas/attendance-timeline-summary.schema';
+import { Employee } from '../schemas/employee.schema';
 import { TimelineRebuildQueue } from '../queues/timeline-rebuild.queue';
+import { LocationBroadcastService } from '../location-broadcast.service';
 import { AuthenticatedUser } from '../guards/jwt-auth.guard';
 import { mock, MockProxy } from 'jest-mock-extended';
 import { Model } from 'mongoose';
+
+// GeoTrackingService calls locationPointModel.find(...).select(...).lean(),
+// so the mocked `find()` must return a chainable object resolving to
+// `result` from `.lean()`, not a bare resolved promise.
+function mockFindChain(result: any[]) {
+  return {
+    select: jest.fn().mockReturnValue({
+      lean: jest.fn().mockResolvedValue(result),
+    }),
+  } as any;
+}
+
+// GeoTrackingService wraps insertMany/live-location updates in a Mongo
+// transaction via `model.db.startSession()` — give the mocked model a fake
+// session whose withTransaction just invokes the callback directly.
+function mockTransactionalSession() {
+  return {
+    withTransaction: jest.fn(async (fn: () => Promise<any>) => fn()),
+    endSession: jest.fn().mockResolvedValue(undefined),
+  };
+}
 
 describe('GeoTrackingService', () => {
   let service: GeoTrackingService;
@@ -47,12 +71,24 @@ describe('GeoTrackingService', () => {
           useValue: mock<Model<EmployeeLiveLocation>>(),
         },
         {
+          provide: getModelToken(AttendanceTimelineSummary.name),
+          useValue: mock<Model<AttendanceTimelineSummary>>(),
+        },
+        {
+          provide: getModelToken(Employee.name),
+          useValue: mock<Model<Employee>>(),
+        },
+        {
           provide: ConfigService,
           useValue: mock<ConfigService>(),
         },
         {
           provide: TimelineRebuildQueue,
           useValue: mock<TimelineRebuildQueue>(),
+        },
+        {
+          provide: LocationBroadcastService,
+          useValue: mock<LocationBroadcastService>(),
         },
       ],
     }).compile();
@@ -89,8 +125,8 @@ describe('GeoTrackingService', () => {
       });
 
       locationPointModel.find
-        .mockResolvedValueOnce([{ clientPointId: 'cp-1' }] as any)
-        .mockResolvedValueOnce([]);
+        .mockReturnValueOnce(mockFindChain([{ clientPointId: 'cp-1' }]))
+        .mockReturnValueOnce(mockFindChain([]));
       locationPointModel.insertMany.mockResolvedValue([]);
 
       const result = await service.batchInsertLocationPoints(
@@ -136,8 +172,8 @@ describe('GeoTrackingService', () => {
       });
 
       locationPointModel.find
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ deviceId: 'dev-1', sequenceNo: 1 }] as any);
+        .mockReturnValueOnce(mockFindChain([]))
+        .mockReturnValueOnce(mockFindChain([{ deviceId: 'dev-1', sequenceNo: 1 }]));
       locationPointModel.insertMany.mockResolvedValue([]);
 
       const result = await service.batchInsertLocationPoints(
@@ -183,9 +219,12 @@ describe('GeoTrackingService', () => {
       });
 
       locationPointModel.find
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([]);
+        .mockReturnValueOnce(mockFindChain([]))
+        .mockReturnValueOnce(mockFindChain([]));
       locationPointModel.insertMany.mockResolvedValue([]);
+      (locationPointModel.db as any).startSession = jest
+        .fn()
+        .mockResolvedValue(mockTransactionalSession());
 
       const result = await service.batchInsertLocationPoints(
         'att-2',
@@ -231,7 +270,7 @@ describe('GeoTrackingService', () => {
         return {};
       });
 
-      locationPointModel.find.mockResolvedValue([]).mockResolvedValue([]);
+      locationPointModel.find.mockReturnValue(mockFindChain([]));
       locationPointModel.insertMany.mockResolvedValue([]);
 
       const result = await service.batchInsertLocationPoints(
@@ -280,11 +319,19 @@ describe('GeoTrackingService', () => {
         return {};
       });
 
-      locationPointModel.find.mockResolvedValue([]).mockResolvedValue([]);
-      locationPointModel.insertMany.mockResolvedValue([{ _id: 'lp-1' }] as any);
+      locationPointModel.find.mockReturnValue(mockFindChain([]));
+      locationPointModel.insertMany.mockResolvedValue([
+        { _id: 'lp-1', capturedAt: newerDate, location: { type: 'Point', coordinates: [-74.006, 40.7128] } },
+      ] as any);
+      (locationPointModel.db as any).startSession = jest
+        .fn()
+        .mockResolvedValue(mockTransactionalSession());
 
       employeeLiveLocationModel.findOne.mockResolvedValue({
         capturedAt: olderDate,
+      } as EmployeeLiveLocation);
+      employeeLiveLocationModel.findOneAndUpdate.mockResolvedValue({
+        lastUpdatedAt: newerDate,
       } as EmployeeLiveLocation);
 
       await service.batchInsertLocationPoints(
@@ -331,8 +378,11 @@ describe('GeoTrackingService', () => {
         return {};
       });
 
-      locationPointModel.find.mockResolvedValue([]).mockResolvedValue([]);
+      locationPointModel.find.mockReturnValue(mockFindChain([]));
       locationPointModel.insertMany.mockResolvedValue([{ _id: 'lp-2' }] as any);
+      (locationPointModel.db as any).startSession = jest
+        .fn()
+        .mockResolvedValue(mockTransactionalSession());
 
       employeeLiveLocationModel.findOne.mockResolvedValue({
         capturedAt: newerDate,
@@ -378,7 +428,7 @@ describe('GeoTrackingService', () => {
           [{}, {}, {}] as any,
           user,
         ),
-      ).rejects.toThrowError();
+      ).rejects.toThrow();
     });
   });
 });

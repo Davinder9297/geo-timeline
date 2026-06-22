@@ -5,8 +5,6 @@ import {
   IsBoolean,
   IsArray,
   ValidateNested,
-  Max,
-  Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AppState } from '../schemas/location-point.schema';
@@ -21,14 +19,14 @@ export class LocationPointDto {
   @IsString()
   capturedAt: string;
 
+  // Intentionally no @Min/@Max range checks here: out-of-range points must be
+  // rejected per-point by GeoTrackingService (counted in `rejected`), not by
+  // failing DTO validation for the whole batch — see spec section 13
+  // ("Mark as anomaly, but do not necessarily reject").
   @IsNumber()
-  @Min(-90)
-  @Max(90)
   latitude: number;
 
   @IsNumber()
-  @Min(-180)
-  @Max(180)
   longitude: number;
 
   @IsNumber()

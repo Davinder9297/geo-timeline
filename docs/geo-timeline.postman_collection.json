@@ -1,0 +1,264 @@
+{
+  "info": {
+    "name": "Geo Timeline API",
+    "description": "Mobile (Flutter), CRM, and Admin APIs for the CRM Employee Geo Activity Timeline backend. See docs/API_DOCUMENTATION.md for the full integration guide.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "companyId", "value": "company1" },
+    { "key": "employeeId", "value": "emp-001" },
+    { "key": "password", "value": "employee123" },
+    { "key": "managerEmployeeId", "value": "manager1" },
+    { "key": "accessToken", "value": "" },
+    { "key": "managerAccessToken", "value": "" },
+    { "key": "attendanceId", "value": "" },
+    { "key": "deviceId", "value": "device-postman-1" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login (employee)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.accessToken) { pm.collectionVariables.set('accessToken', body.accessToken); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyId\": \"{{companyId}}\",\n  \"employeeId\": \"{{employeeId}}\",\n  \"password\": \"{{password}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login (manager)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.accessToken) { pm.collectionVariables.set('managerAccessToken', body.accessToken); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyId\": \"{{companyId}}\",\n  \"employeeId\": \"{{managerEmployeeId}}\",\n  \"password\": \"{{password}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Register employee",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyId\": \"{{companyId}}\",\n  \"employeeId\": \"emp-new-01\",\n  \"name\": \"New Employee\",\n  \"password\": \"employee123\",\n  \"role\": \"EMPLOYEE\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get current user (me)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Mobile - Attendance & Tracking",
+      "item": [
+        {
+          "name": "Get my attendances",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/mobile/attendance"
+          }
+        },
+        {
+          "name": "Check in (create attendance)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data._id) { pm.collectionVariables.set('attendanceId', body.data._id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/mobile/attendance"
+          }
+        },
+        {
+          "name": "Start location tracking",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/mobile/attendance/{{attendanceId}}/location/start"
+          }
+        },
+        {
+          "name": "Upload location batch",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/mobile/attendance/{{attendanceId}}/location-points/batch",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\",\n  \"points\": [\n    {\n      \"clientPointId\": \"{{$guid}}\",\n      \"sequenceNo\": 1,\n      \"capturedAt\": \"{{$isoTimestamp}}\",\n      \"latitude\": 23.0225,\n      \"longitude\": 72.5714,\n      \"accuracyM\": 12,\n      \"speedMps\": 1.5,\n      \"heading\": 90,\n      \"batteryPercent\": 80,\n      \"networkType\": \"4G\",\n      \"appState\": \"FOREGROUND\",\n      \"isMocked\": false\n    },\n    {\n      \"clientPointId\": \"{{$guid}}\",\n      \"sequenceNo\": 2,\n      \"capturedAt\": \"{{$isoTimestamp}}\",\n      \"latitude\": 23.023,\n      \"longitude\": 72.572,\n      \"accuracyM\": 60,\n      \"speedMps\": 2.1,\n      \"heading\": 95,\n      \"batteryPercent\": 79,\n      \"networkType\": \"4G\",\n      \"appState\": \"BACKGROUND\",\n      \"isMocked\": false\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Upload location batch (duplicate replay)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/mobile/attendance/{{attendanceId}}/location-points/batch",
+            "description": "Resend the same clientPointId to verify the response counts it under `duplicates` and does not create a second point.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\",\n  \"points\": [\n    {\n      \"clientPointId\": \"REPLACE-WITH-A-PREVIOUSLY-SENT-clientPointId\",\n      \"sequenceNo\": 1,\n      \"capturedAt\": \"{{$isoTimestamp}}\",\n      \"latitude\": 23.0225,\n      \"longitude\": 72.5714,\n      \"accuracyM\": 12,\n      \"speedMps\": 1.5,\n      \"heading\": 90,\n      \"batteryPercent\": 80,\n      \"networkType\": \"4G\",\n      \"appState\": \"FOREGROUND\",\n      \"isMocked\": false\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Upload location batch (invalid coordinates)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/mobile/attendance/{{attendanceId}}/location-points/batch",
+            "description": "latitude/longitude out of range — expect rejected: 1 in the response.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\",\n  \"points\": [\n    {\n      \"clientPointId\": \"{{$guid}}\",\n      \"sequenceNo\": 99,\n      \"capturedAt\": \"{{$isoTimestamp}}\",\n      \"latitude\": 999,\n      \"longitude\": 72.5714,\n      \"accuracyM\": 12,\n      \"speedMps\": 1.5,\n      \"heading\": 90,\n      \"batteryPercent\": 80,\n      \"networkType\": \"4G\",\n      \"appState\": \"FOREGROUND\",\n      \"isMocked\": false\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Stop tracking (break)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/mobile/attendance/{{attendanceId}}/location/stop"
+          }
+        },
+        {
+          "name": "Check out",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/mobile/attendance/{{attendanceId}}/checkout"
+          }
+        }
+      ]
+    },
+    {
+      "name": "CRM - Manager Dashboard",
+      "item": [
+        {
+          "name": "Get live employees",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{managerAccessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/companies/{{companyId}}/geo/live-employees?status=WORKING",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "companies", "{{companyId}}", "geo", "live-employees"],
+              "query": [{ "key": "status", "value": "WORKING" }]
+            }
+          }
+        },
+        {
+          "name": "Get employee geo-timeline",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{managerAccessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/companies/{{companyId}}/employees/{{employeeId}}/geo-timeline?date={{$isoTimestamp}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "companies", "{{companyId}}", "employees", "{{employeeId}}", "geo-timeline"],
+              "query": [{ "key": "date", "value": "2026-06-22" }]
+            }
+          }
+        },
+        {
+          "name": "Rebuild geo-timeline",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{managerAccessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/v1/companies/{{companyId}}/attendance/{{attendanceId}}/geo-timeline/rebuild"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin - Test Utilities",
+      "item": [
+        {
+          "name": "Clear all data except employees",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/admin/test/clear-all-except-employees/test-clear-123",
+            "description": "DANGEROUS: wipes attendance_daily, location_points, employee_live_locations, attendance_timeline_summaries. Has NO auth guard — do not expose this route outside local/test environments."
+          }
+        }
+      ]
+    }
+  ]
+}

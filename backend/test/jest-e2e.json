@@ -5,5 +5,9 @@
   "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
-  }
+  },
+  "globalSetup": "<rootDir>/mongo-global-setup.js",
+  "globalTeardown": "<rootDir>/mongo-global-teardown.js",
+  "testTimeout": 30000,
+  "transformIgnorePatterns": ["node_modules/(?!(uuid)/)"]
 }

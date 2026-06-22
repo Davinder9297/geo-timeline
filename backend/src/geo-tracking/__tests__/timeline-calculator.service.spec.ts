@@ -12,6 +12,7 @@ import {
   AppState,
 } from '../schemas/location-point.schema';
 import { AttendanceTimelineSummary } from '../schemas/attendance-timeline-summary.schema';
+import { LocationBroadcastService } from '../location-broadcast.service';
 import { mock, MockProxy } from 'jest-mock-extended';
 import { Model } from 'mongoose';
 
@@ -43,6 +44,10 @@ describe('TimelineCalculatorService', () => {
         {
           provide: ConfigService,
           useValue: mock<ConfigService>(),
+        },
+        {
+          provide: LocationBroadcastService,
+          useValue: mock<LocationBroadcastService>(),
         },
       ],
     }).compile();

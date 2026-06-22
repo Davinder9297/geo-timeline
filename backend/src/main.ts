@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { json, urlencoded } from 'body-parser';
 import type { NextFunction, Request, Response } from 'express';
@@ -32,6 +33,15 @@ async function bootstrap() {
       next();
     });
   }
+
+  // Validate/transform incoming DTOs (class-validator decorators were previously unenforced)
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: false,
+      transform: true,
+      forbidUnknownValues: false,
+    }),
+  );
 
   // Use global exception filter to normalize error responses
   app.useGlobalFilters(new AllExceptionsFilter());
