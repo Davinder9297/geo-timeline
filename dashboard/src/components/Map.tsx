@@ -18,7 +18,10 @@ declare global {
 declare const google: any;
 
 const getMarkerColor = (status: LiveLocationStatus, isStale: boolean) => {
-  if (isStale) return "#9E9E9E";
+  // Staleness only matters while someone is supposed to be active — once
+  // checked out, going stale is expected, so don't let it mask the
+  // CHECKED_OUT color (mirrors the same rule in LeftPanel.tsx).
+  if (isStale && status !== LiveLocationStatus.CHECKED_OUT) return "#9E9E9E";
   switch (status) {
     case LiveLocationStatus.WORKING:
       return "#4CAF50";

@@ -119,7 +119,13 @@ export const LeftPanel = ({ className = "" }: { className?: string }) => {
           <div className="p-4 text-center text-sm text-gray-500 dark:text-slate-400">No employees found</div>
         )}
         {filteredEmployees.map((emp) => {
-          const style = STATUS_STYLES[emp.status] || STATUS_STYLES[LiveLocationStatus.OFFLINE];
+          // Staleness only matters while someone is supposed to be active —
+          // once checked out, going stale is expected, not a warning, so
+          // never let it override a CHECKED_OUT employee's color or label.
+          const isStaleWhileActive = emp.isStale && emp.status !== LiveLocationStatus.CHECKED_OUT;
+          const style = isStaleWhileActive
+            ? STATUS_STYLES[LiveLocationStatus.STALE]
+            : STATUS_STYLES[emp.status] || STATUS_STYLES[LiveLocationStatus.OFFLINE];
           const isSelected = selectedEmployeeId === emp.employeeId;
           return (
             <div
@@ -137,7 +143,7 @@ export const LeftPanel = ({ className = "" }: { className?: string }) => {
                 </div>
                 <span
                   className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white dark:border-slate-900 ${style.dot} ${
-                    emp.isStale ? "opacity-50" : ""
+                    isStaleWhileActive ? "opacity-50" : ""
                   }`}
                 />
               </div>
@@ -146,7 +152,7 @@ export const LeftPanel = ({ className = "" }: { className?: string }) => {
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium text-sm text-gray-900 dark:text-slate-100 truncate">{emp.name}</span>
                   <span className={`shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-full ${style.bg} ${style.text}`}>
-                    {emp.isStale ? "Stale" : emp.status.replace("_", " ")}
+                    {isStaleWhileActive ? "Stale" : emp.status.replace("_", " ")}
                   </span>
                 </div>
                 <div className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
