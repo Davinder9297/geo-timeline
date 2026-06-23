@@ -57,6 +57,13 @@ export interface TimelineSummary {
   lastComputedAt: string;
 }
 
+export interface AttendanceSession {
+  sessionId: string;
+  checkInAt: string;
+  checkOutAt?: string;
+  breaks: { breakId: string; startAt: string; endAt?: string }[];
+}
+
 export interface AttendanceDaily {
   _id: string;
   companyId: string;
@@ -66,6 +73,7 @@ export interface AttendanceDaily {
   firstCheckInAt: string;
   finalCheckOutAt?: string;
   trackingStoppedAt?: string;
+  sessions: AttendanceSession[];
 }
 
 export interface RawLocationPoint {
@@ -73,6 +81,7 @@ export interface RawLocationPoint {
   longitude: number;
   sequenceNo: number;
   capturedAt: string;
+  sessionId: string;
 }
 
 export interface TimelineResponse {

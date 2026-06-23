@@ -48,16 +48,21 @@ export default function DashboardPage() {
   return (
     <div className="h-screen flex flex-col bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-gray-100">
       <div className="h-14 border-b border-gray-200 dark:border-slate-800 flex items-center justify-between px-6 bg-white dark:bg-slate-900">
-        <h1 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Geo Timeline CRM</h1>
+        <div className="flex items-center gap-2.5">
+          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-cyan-500 to-violet-500 shrink-0" />
+          <h1 className="text-sm sm:text-base font-bold tracking-tight text-gray-900 dark:text-slate-100 truncate">
+            Employee Location Tracking System
+          </h1>
+        </div>
         <div className="flex items-center gap-4">
           {selectedEmployee && (
             <div className="text-sm text-gray-600 dark:text-slate-300 hidden md:block">
-              Viewing: <span className="font-semibold text-blue-600 dark:text-blue-400">{selectedEmployee.name}</span>
+              Viewing: <span className="font-semibold text-cyan-600 dark:text-cyan-400">{selectedEmployee.name}</span>
             </div>
           )}
           <button
             onClick={logout}
-            className="px-4 py-1.5 border border-gray-300 dark:border-slate-700 rounded-md hover:bg-gray-50 dark:hover:bg-slate-800 text-sm font-medium cursor-pointer"
+            className="px-4 py-1.5 border border-gray-300 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 text-sm font-medium cursor-pointer transition-colors"
           >
             Logout
           </button>
@@ -82,7 +87,7 @@ export default function DashboardPage() {
           onClick={() => setActiveTab("employees")}
           className={`flex-1 py-2 text-center text-xs font-semibold rounded-md ${
             activeTab === "employees"
-              ? "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20"
+              ? "text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-900/20"
               : "text-gray-500 dark:text-slate-400"
           }`}
         >
@@ -92,7 +97,7 @@ export default function DashboardPage() {
           onClick={() => setActiveTab("map")}
           className={`flex-1 py-2 text-center text-xs font-semibold rounded-md ${
             activeTab === "map"
-              ? "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20"
+              ? "text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-900/20"
               : "text-gray-500 dark:text-slate-400"
           }`}
         >
@@ -107,7 +112,7 @@ export default function DashboardPage() {
             !selectedEmployee
               ? "opacity-40 cursor-not-allowed text-gray-400 dark:text-slate-600"
               : activeTab === "timeline"
-              ? "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20"
+              ? "text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-900/20"
               : "text-gray-500 dark:text-slate-400"
           }`}
         >

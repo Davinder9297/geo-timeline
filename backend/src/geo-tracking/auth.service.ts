@@ -6,6 +6,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { Employee, UserRole } from './schemas/employee.schema';
 import { LoginDto, CreateEmployeeDto } from './dto/auth.dto';
@@ -22,14 +23,21 @@ export class AuthService {
   constructor(
     @InjectModel(Employee.name) private employeeModel: Model<Employee>,
     private jwtService: JwtService,
+    private configService: ConfigService,
   ) {}
 
   async register(createEmployeeDto: CreateEmployeeDto): Promise<{
     accessToken: string;
     employee: EmployeeResponse;
   }> {
+    const companyId = this.configService.get<string>(
+      'geoTracking.defaultCompanyId',
+    );
+
+    // employeeId is globally unique in this single-company deployment, so we
+    // check by employeeId alone rather than scoping to companyId — older
+    // records may predate the default-company assignment.
     const existingEmployee = await this.employeeModel.findOne({
-      companyId: createEmployeeDto.companyId,
       employeeId: createEmployeeDto.employeeId,
     });
 
@@ -41,6 +49,7 @@ export class AuthService {
 
     const employee = new this.employeeModel({
       ...createEmployeeDto,
+      companyId,
       passwordHash,
       role: createEmployeeDto.role || UserRole.EMPLOYEE,
     });
@@ -72,8 +81,10 @@ export class AuthService {
     accessToken: string;
     employee: EmployeeResponse;
   }> {
+    // Look up by employeeId alone: this is a single-company deployment and
+    // existing employees may have been created before defaultCompanyId
+    // existed, so scoping the lookup to companyId would lock them out.
     const employee = await this.employeeModel.findOne({
-      companyId: loginDto.companyId,
       employeeId: loginDto.employeeId,
     });
 

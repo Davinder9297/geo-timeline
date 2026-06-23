@@ -5,4 +5,6 @@ export const CONFIG = {
   DISTANCE_FILTER_METERS: 10, // Updated to 10 meters
   BATCH_SIZE: 5, // Lowered from 20 to 5 to prevent large payloads
   BATCH_INTERVAL_MS: 30000,
+  GOOGLE_MAPS_API_KEY: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "",
+  GOOGLE_MAPS_MAP_ID: process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID || "",
 };

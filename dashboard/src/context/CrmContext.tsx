@@ -38,6 +38,8 @@ const CrmContext = createContext<{
   playbackTime: number;
   setPlaybackTime: (seconds: number) => void;
   timelineDurationSeconds: number;
+  selectedSessionId: string | null;
+  setSelectedSessionId: (sessionId: string | null) => void;
 } | null>(null);
 
 export const CrmProvider = ({ children }: { children: React.ReactNode }) => {
@@ -52,6 +54,7 @@ export const CrmProvider = ({ children }: { children: React.ReactNode }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [playbackTime, setPlaybackTime] = useState(0);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
 
   const employeesQuery = useQuery({
@@ -104,6 +107,9 @@ export const CrmProvider = ({ children }: { children: React.ReactNode }) => {
         logout();
         throw new Error("Unauthorized");
       }
+      // No attendance exists for this employee/date — not an error, just an
+      // empty day. Let the UI show a friendly "didn't check in" message.
+      if (response.status === 404) return null;
         if (!response.ok) {
           let msg = 'Failed to fetch timeline';
           try {
@@ -179,17 +185,44 @@ export const CrmProvider = ({ children }: { children: React.ReactNode }) => {
       socketRef.current?.emit("company:subscribe", { companyId: user.companyId });
     });
 
-    socketRef.current.on("employee:location:update", (data: LiveEmployee) => {
-      queryClient.setQueryData(["live-employees"], (old: LiveEmployee[]) => {
-        return old.map((e) => (e.employeeId === data.employeeId ? data : e));
-      });
-    });
+    // The backend only broadcasts a partial payload (employeeId, location,
+    // status, isStale, lastUpdatedAt — no `name`), so these handlers must
+    // merge into the existing cached record rather than replacing it
+    // wholesale, or fields like `name` get wiped and crash consumers like
+    // LeftPanel's `.toLowerCase()` search filter. If the employee isn't in
+    // the cache yet (e.g. just signed up), refetch the full list instead.
+    type LiveLocationUpdatePayload = {
+      employeeId: string;
+      location?: { latitude: number; longitude: number };
+      status?: LiveEmployee["status"];
+      isStale?: boolean;
+      lastUpdatedAt?: string;
+    };
 
-    socketRef.current.on("employee:status:update", (data: LiveEmployee) => {
-      queryClient.setQueryData(["live-employees"], (old: LiveEmployee[]) => {
-        return old.map((e) => (e.employeeId === data.employeeId ? data : e));
+    const mergeLiveEmployeeUpdate = (data: LiveLocationUpdatePayload) => {
+      queryClient.setQueryData(["live-employees"], (old: LiveEmployee[] | undefined) => {
+        if (!old) return old;
+        const exists = old.some((e) => e.employeeId === data.employeeId);
+        if (!exists) {
+          queryClient.invalidateQueries({ queryKey: ["live-employees"] });
+          return old;
+        }
+        return old.map((e) =>
+          e.employeeId === data.employeeId
+            ? {
+                ...e,
+                lastLocation: data.location ?? e.lastLocation,
+                status: data.status ?? e.status,
+                isStale: data.isStale ?? e.isStale,
+                lastUpdatedAt: data.lastUpdatedAt ?? e.lastUpdatedAt,
+              }
+            : e
+        );
       });
-    });
+    };
+
+    socketRef.current.on("employee:location:update", mergeLiveEmployeeUpdate);
+    socketRef.current.on("employee:status:update", mergeLiveEmployeeUpdate);
 
     socketRef.current.on("timeline:recomputed", () => {
       queryClient.invalidateQueries({
@@ -209,6 +242,7 @@ export const CrmProvider = ({ children }: { children: React.ReactNode }) => {
     const t = setTimeout(() => {
       setIsPlaying(false);
       setPlaybackTime(0);
+      setSelectedSessionId(null);
     }, 0);
     return () => clearTimeout(t);
   }, [selectedEmployeeId, selectedDate]);
@@ -248,6 +282,8 @@ export const CrmProvider = ({ children }: { children: React.ReactNode }) => {
         playbackTime,
         setPlaybackTime,
         timelineDurationSeconds,
+        selectedSessionId,
+        setSelectedSessionId,
       }}
     >
       {children}

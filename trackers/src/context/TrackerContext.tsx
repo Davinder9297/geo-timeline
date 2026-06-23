@@ -35,6 +35,10 @@ import type {
   GetAttendancesResponse,
   CreateAttendanceResponse,
   CheckOutAttendanceResponse,
+  TimelineResponse,
+  GetTimelineResponse,
+  EmployeeStatsDay,
+  GetStatsResponse,
 } from "../types";
 
 declare global {
@@ -48,15 +52,10 @@ declare global {
 
 interface TrackerContextType {
   user: UserState | null;
-  login: (
-    companyId: string,
-    employeeId: string,
-    password: string
-  ) => Promise<void>;
+  login: (employeeId: string, password: string) => Promise<void>;
+  signup: (employeeId: string, name: string, password: string) => Promise<void>;
   logout: () => void;
   trackingState: "idle" | "active" | "stopped";
-  startTracking: () => Promise<void>;
-  stopTracking: () => Promise<void>;
   queue: LocationPointDto[];
   lastSyncTime: Date | null;
   lastError: string | null;
@@ -69,6 +68,14 @@ interface TrackerContextType {
   isCheckingOut: boolean;
   totalDistance: number; // Total distance moved in meters
   isHydrated: boolean;
+  currentLocation: { lat: number; lng: number } | null;
+  selectedTimelineDate: string;
+  setSelectedTimelineDate: (date: string) => void;
+  timeline: TimelineResponse | null;
+  loadingTimeline: boolean;
+  errorTimeline: string | null;
+  stats: EmployeeStatsDay[] | undefined;
+  loadingStats: boolean;
 }
 
 const TrackerContext = createContext<TrackerContextType | undefined>(undefined);
@@ -102,6 +109,10 @@ export const TrackerProvider = ({
   const [selectedAttendance, setSelectedAttendance] = useState<AttendanceDaily | undefined>();
   const [totalDistance, setTotalDistance] = useState(0); // Total distance in meters
   const [lastAccuracy, setLastAccuracy] = useState<number | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [selectedTimelineDate, setSelectedTimelineDate] = useState<string>(
+    new Date().toISOString().split("T")[0]
+  );
 
   // Keep refs updated
   useEffect(() => {
@@ -125,6 +136,43 @@ export const TrackerProvider = ({
       );
       if (!response.ok) throw new Error('Failed to load attendances');
       const data = await response.json() as GetAttendancesResponse;
+      return data.data;
+    },
+    enabled: !!user,
+  });
+
+  const timelineQuery = useQuery({
+    queryKey: ["timeline", selectedTimelineDate],
+    queryFn: async () => {
+      if (!user) return null;
+      const params = new URLSearchParams();
+      params.set("date", selectedTimelineDate);
+      const response = await fetch(
+        `${CONFIG.API_BASE_URL}/mobile/attendance/timeline?${params.toString()}`,
+        {
+          headers: { Authorization: `Bearer ${user.token}` },
+        }
+      );
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error("Failed to load timeline");
+      const data = (await response.json()) as GetTimelineResponse;
+      return data.data;
+    },
+    enabled: !!user,
+  });
+
+  const statsQuery = useQuery({
+    queryKey: ["stats"],
+    queryFn: async () => {
+      if (!user) return undefined;
+      const response = await fetch(
+        `${CONFIG.API_BASE_URL}/mobile/attendance/stats?days=7`,
+        {
+          headers: { Authorization: `Bearer ${user.token}` },
+        }
+      );
+      if (!response.ok) throw new Error("Failed to load stats");
+      const data = (await response.json()) as GetStatsResponse;
       return data.data;
     },
     enabled: !!user,
@@ -180,13 +228,21 @@ export const TrackerProvider = ({
       return (await response.json()) as CreateAttendanceResponse;
     },
     onSuccess: async (data) => {
-      queryClient.setQueryData(['attendances'], (old: AttendanceDaily[] | undefined) => 
-        old ? [data.data, ...old] : [data.data]
-      );
+      queryClient.setQueryData(['attendances'], (old: AttendanceDaily[] | undefined) => {
+        if (!old) return [data.data];
+        const exists = old.some((a) => a._id === data.data._id);
+        return exists
+          ? old.map((a) => (a._id === data.data._id ? data.data : a))
+          : [data.data, ...old];
+      });
       const newUser = { ...user, attendanceId: data.data._id } as UserState;
       setUser(newUser);
       saveUser(newUser);
       setSelectedAttendance(data.data);
+      await startTrackingMutation.mutateAsync().catch(() => {});
+      beginGeoWatch();
+      queryClient.invalidateQueries({ queryKey: ["timeline"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
     }
   });
 
@@ -214,9 +270,11 @@ export const TrackerProvider = ({
       return (await response.json()) as CheckOutAttendanceResponse;
     },
     onSuccess: async (data) => {
-      queryClient.setQueryData(['attendances'], (old: AttendanceDaily[] | undefined) => 
+      queryClient.setQueryData(['attendances'], (old: AttendanceDaily[] | undefined) =>
         old ? old.map(a => a._id === data.data._id ? data.data : a) : [data.data]
       );
+      queryClient.invalidateQueries({ queryKey: ["timeline"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
     }
   });
 
@@ -242,30 +300,6 @@ export const TrackerProvider = ({
         throw new Error(msg);
       }
       return (await response.json()) as StartTrackingResponse;
-    },
-  });
-
-  const stopTrackingMutation = useMutation({
-    mutationFn: async () => {
-      if (!user || !user.attendanceId) throw new Error("No active attendance");
-      const response = await fetch(
-        `${CONFIG.API_BASE_URL}/mobile/attendance/${user.attendanceId}/location/stop`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${user.token}`,
-          },
-        }
-      );
-      if (!response.ok) {
-        let msg = 'Failed to stop tracking';
-        try {
-          const err = await response.json();
-          msg = extractErrorMessage(err, msg);
-        } catch {}
-        throw new Error(msg);
-      }
     },
   });
 
@@ -523,6 +557,7 @@ const addLocationToQueue = useCallback(async (
     queueRef.current = [...queueRef.current, point];
     lastQueuedPointRef.current = point;
     setLastAccuracy(accuracy);
+    setCurrentLocation({ lat: latitude, lng: longitude });
 
     if (queueRef.current.length >= CONFIG.BATCH_SIZE) {
       flushQueue();
@@ -567,11 +602,7 @@ const handlePosition = useCallback(
     // setLastError(`Geolocation error: ${error.message}`);
   }, []);
 
-  const login = async (
-    companyId: string,
-    employeeId: string,
-    password: string
-  ) => {
+  const login = async (employeeId: string, password: string) => {
     // Clear any persisted session state before logging in so new tracking starts fresh.
     clearUser();
     clearQueue();
@@ -586,10 +617,51 @@ const handlePosition = useCallback(
     const response = await fetch(`${CONFIG.API_BASE_URL}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ companyId, employeeId, password }),
+      body: JSON.stringify({ employeeId, password }),
     });
 
     if (!response.ok) throw new Error("Login failed");
+
+    const data = await response.json();
+    const newUser: UserState = {
+      isAuthenticated: true,
+      companyId: data.employee.companyId,
+      employeeId: data.employee.employeeId,
+      name: data.employee.name,
+      role: data.employee.role as UserRole,
+      token: data.accessToken,
+      attendanceId: null,
+    };
+
+    setUser(newUser);
+    saveUser(newUser);
+  };
+
+  const signup = async (employeeId: string, name: string, password: string) => {
+    clearUser();
+    clearQueue();
+    clearTrackingState();
+    setUser(null);
+    setQueue([]);
+    queueRef.current = [];
+    setTrackingState("idle");
+    setLastError(null);
+    setTotalDistance(0);
+
+    const response = await fetch(`${CONFIG.API_BASE_URL}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ employeeId, name, password }),
+    });
+
+    if (!response.ok) {
+      let msg = "Signup failed";
+      try {
+        const err = await response.json();
+        msg = extractErrorMessage(err, msg);
+      } catch {}
+      throw new Error(msg);
+    }
 
     const data = await response.json();
     const newUser: UserState = {
@@ -622,44 +694,36 @@ const handlePosition = useCallback(
     stopBatchInterval();
   };
 
-  const startTracking = async () => {
-    if (!user || !user.attendanceId) return;
-    try {
-      await startTrackingMutation.mutateAsync();
-      setTrackingState("active");
+  const beginGeoWatch = useCallback(() => {
+    setTrackingState("active");
 
-      // Reset stale state when starting a fresh tracking session
-      if (queueRef.current.length === 0) {
-        lastLocationRef.current = null;
-        lastQueuedPointRef.current = null;
-        setLastAccuracy(null);
-      }
-
-      // Get current location immediately
-      getCurrentLocation();
-
-      watcherRef.current = navigator.geolocation.watchPosition(
-        handlePosition,
-        handlePositionError,
-        {
-          enableHighAccuracy: true,
-          maximumAge: 30000,
-          timeout: 60000, // Increase timeout to 60 seconds
-        }
-      );
-
-      batchIntervalRef.current = setInterval(() => {
-        flushQueue(true); // Allow sending empty batches as heartbeat
-      }, CONFIG.BATCH_INTERVAL_MS);
-    } catch (error) {
-      setLastError(`Start tracking error: ${(error as Error).message}`);
+    // Reset stale state when starting a fresh tracking session
+    if (queueRef.current.length === 0) {
+      lastLocationRef.current = null;
+      lastQueuedPointRef.current = null;
+      setLastAccuracy(null);
     }
-  };
 
-  const stopTracking = async () => {
-    const currentUser = userRef.current;
-    if (!currentUser) return;
-    setTrackingState("idle"); // Reset to idle so we can start again
+    // Get current location immediately
+    getCurrentLocation();
+
+    watcherRef.current = navigator.geolocation.watchPosition(
+      handlePosition,
+      handlePositionError,
+      {
+        enableHighAccuracy: true,
+        maximumAge: 30000,
+        timeout: 60000, // Increase timeout to 60 seconds
+      }
+    );
+
+    batchIntervalRef.current = setInterval(() => {
+      flushQueue(true); // Allow sending empty batches as heartbeat
+    }, CONFIG.BATCH_INTERVAL_MS);
+  }, [getCurrentLocation, handlePosition, handlePositionError, flushQueue]);
+
+  const endGeoWatch = useCallback(async () => {
+    setTrackingState("idle");
     stopWatcher();
     stopBatchInterval();
 
@@ -667,25 +731,19 @@ const handlePosition = useCallback(
     lastLocationRef.current = null;
     lastQueuedPointRef.current = null;
     setLastAccuracy(null);
-
-    try {
-      await stopTrackingMutation.mutateAsync();
-    } catch (error) {
-      setLastError(`Stop tracking error: ${(error as Error).message}`);
-    }
-  };
+  }, [flushQueue]);
 
   const createAttendance = async () => {
     await createAttendanceMutation.mutateAsync();
   };
 
   const checkOutAttendance = async () => {
+    await endGeoWatch();
     await checkOutAttendanceMutation.mutateAsync();
     const newUser = { ...user, attendanceId: null } as UserState;
     setUser(newUser);
     saveUser(newUser);
     setSelectedAttendance(undefined);
-    setTrackingState("idle");
     setTotalDistance(0); // Reset total distance on checkout
   };
 
@@ -780,10 +838,9 @@ const handlePosition = useCallback(
       value={{
         user,
         login,
+        signup,
         logout,
         trackingState,
-        startTracking,
-        stopTracking,
         queue,
         lastSyncTime,
         lastError,
@@ -796,6 +853,14 @@ const handlePosition = useCallback(
         isCheckingOut: checkOutAttendanceMutation.isPending,
         totalDistance,
         isHydrated,
+        currentLocation,
+        selectedTimelineDate,
+        setSelectedTimelineDate,
+        timeline: timelineQuery.data || null,
+        loadingTimeline: timelineQuery.isLoading,
+        errorTimeline: timelineQuery.error?.message || null,
+        stats: statsQuery.data,
+        loadingStats: statsQuery.isLoading,
       }}
     >
       {children}

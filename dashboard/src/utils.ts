@@ -39,6 +39,18 @@ export const formatTime = (seconds: number): string => {
   return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 };
 
+export const SESSION_COLORS = [
+  "#2196F3",
+  "#9C27B0",
+  "#009688",
+  "#FF9800",
+  "#E91E63",
+  "#3F51B5",
+];
+
+export const getSessionColor = (index: number): string =>
+  SESSION_COLORS[index % SESSION_COLORS.length];
+
 export const formatDistance = (meters: number): string => {
   if (meters < 1000) {
     return `${meters.toFixed(0)} m`;

@@ -104,3 +104,66 @@ export interface CheckOutAttendanceResponse {
   success: boolean;
   data: AttendanceDaily;
 }
+
+export interface RawLocationPoint {
+  latitude: number;
+  longitude: number;
+  sequenceNo: number;
+  capturedAt: string;
+  sessionId: string;
+}
+
+export interface TimelineEvent {
+  type: "CHECK_IN" | "CHECK_OUT" | "BREAK_START" | "BREAK_END" | "STOP";
+  at?: string;
+  startAt?: string;
+  endAt?: string;
+  durationSeconds?: number;
+}
+
+export interface TimelineAnomaly {
+  type: string;
+  startAt: string;
+  endAt: string;
+  durationSeconds: number;
+}
+
+export interface TimelineResponse {
+  attendance: AttendanceDaily;
+  rawPointsCount: number;
+  rawPoints: RawLocationPoint[];
+  summaryAvailable: boolean;
+  processedRoute?: {
+    encodedProcessedPolyline: string;
+    encodedRawPolyline: string;
+  };
+  totals?: {
+    rawDistanceMeters: number;
+    processedDistanceMeters: number;
+    workingSeconds: number;
+    breakSeconds: number;
+    movingSeconds: number;
+    holdSeconds: number;
+    dataGapSeconds: number;
+    gpsQualityScore: number;
+  };
+  timelineEvents?: TimelineEvent[];
+  anomalies?: TimelineAnomaly[];
+}
+
+export interface GetTimelineResponse {
+  success: boolean;
+  data: TimelineResponse;
+}
+
+export interface EmployeeStatsDay {
+  date: string;
+  workingSeconds: number;
+  distanceMeters: number;
+  sessionsCount: number;
+}
+
+export interface GetStatsResponse {
+  success: boolean;
+  data: EmployeeStatsDay[];
+}

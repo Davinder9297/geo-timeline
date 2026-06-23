@@ -5,7 +5,7 @@ import { MarkerClusterer } from "@googlemaps/markerclusterer";
 import { CONFIG } from "@/config";
 import { useCrm } from "@/context/CrmContext";
 import { LiveLocationStatus, RawLocationPoint } from "@/types";
-import { decodePolyline } from "@/utils";
+import { decodePolyline, getSessionColor } from "@/utils";
 
 declare global {
   interface Window {
@@ -83,7 +83,7 @@ const buildPathSegments = (
 };
 
 export const Map = () => {
-  const { employees, selectedEmployee, timeline, playbackTime } = useCrm();
+  const { employees, selectedEmployee, timeline, playbackTime, selectedSessionId } = useCrm();
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
@@ -92,8 +92,7 @@ export const Map = () => {
   const playbackMarkerRef = useRef<any>(null);
   const sequenceMarkersRef = useRef<any[]>([]);
   const rawPointsRef = useRef<RawLocationPoint[]>([]);
-  const [showRaw, setShowRaw] = useState(false);
-  const [showSequenceMarkers, setShowSequenceMarkers] = useState(true);
+  const [viewMode, setViewMode] = useState<"route" | "sequence">("route");
   const [mapsLoaded, setMapsLoaded] = useState(false);
 
   useEffect(() => {
@@ -210,40 +209,106 @@ export const Map = () => {
     sequenceMarkersRef.current.forEach((m) => (m.map = null));
     sequenceMarkersRef.current = [];
 
-    const polyline = showRaw
-      ? timeline.processedRoute?.encodedRawPolyline
-      : timeline.processedRoute?.encodedProcessedPolyline;
+    const rawPoints = timeline.rawPoints || [];
+    rawPointsRef.current = rawPoints;
 
-    // Build a path either from encoded polyline or fallback to rawPoints
-    let path: { lat: number; lng: number }[] = [];
-    if (polyline) {
-      path = decodePolyline(polyline).map(([lat, lng]) => ({ lat, lng }));
-    } else if (timeline.rawPoints && timeline.rawPoints.length > 0) {
-      path = timeline.rawPoints.map((p: any) => ({ lat: p.latitude, lng: p.longitude }));
+    // Determine session order chronologically (first appearance in rawPoints,
+    // falling back to attendance.sessions order if rawPoints lack a session).
+    const sessionOrder: string[] = [];
+    rawPoints.forEach((p: RawLocationPoint) => {
+      if (p.sessionId && !sessionOrder.includes(p.sessionId)) {
+        sessionOrder.push(p.sessionId);
+      }
+    });
+    const sessionColor = (sessionId: string | undefined) => {
+      const idx = sessionId ? sessionOrder.indexOf(sessionId) : -1;
+      return getSessionColor(idx >= 0 ? idx : 0);
+    };
+
+    const googleObj = (window as any).google;
+    const bounds = new googleObj.maps.LatLngBounds();
+    let firstPathPoint: { lat: number; lng: number } | null = null;
+
+    if (rawPoints.length > 0 && sessionOrder.length > 0) {
+      // Draw one polyline group per session, each in its own color.
+      sessionOrder.forEach((sessionId, idx) => {
+        const sessionPoints = rawPoints.filter((p: RawLocationPoint) => p.sessionId === sessionId);
+        const path = sessionPoints.map((p: RawLocationPoint) => ({ lat: p.latitude, lng: p.longitude }));
+        if (path.length === 0) return;
+        if (!firstPathPoint) firstPathPoint = path[0];
+
+        const segments = buildPathSegments(path, 250);
+        const isDimmed = !!selectedSessionId && selectedSessionId !== sessionId;
+        const color = sessionColor(sessionId);
+
+        segments.forEach((segment) => {
+          const segmentPolyline = new googleObj.maps.Polyline({
+            path: segment,
+            geodesic: true,
+            strokeColor: color,
+            strokeOpacity: isDimmed ? 0.25 : 0.85,
+            strokeWeight: 4,
+          });
+          segmentPolyline.setMap(mapInstanceRef.current);
+          polylinesRef.current.push(segmentPolyline);
+          segment.forEach((p) => bounds.extend(new googleObj.maps.LatLng(p.lat, p.lng)));
+        });
+
+        if (viewMode === "sequence") {
+          sessionPoints.forEach((point: RawLocationPoint) => {
+            const markerElement = document.createElement("div");
+            markerElement.style.width = "28px";
+            markerElement.style.height = "28px";
+            markerElement.style.borderRadius = "50%";
+            markerElement.style.backgroundColor = color;
+            markerElement.style.opacity = isDimmed ? "0.35" : "1";
+            markerElement.style.color = "white";
+            markerElement.style.display = "flex";
+            markerElement.style.alignItems = "center";
+            markerElement.style.justifyContent = "center";
+            markerElement.style.fontSize = "11px";
+            markerElement.style.fontWeight = "bold";
+            markerElement.style.border = "2px solid white";
+            markerElement.style.boxShadow = "0 2px 6px rgba(0,0,0,0.3)";
+            markerElement.textContent = point.sequenceNo.toString();
+            markerElement.title = `Session ${idx + 1} · Point #${point.sequenceNo} - ${new Date(point.capturedAt).toLocaleString()}`;
+
+            const marker = new googleObj.maps.marker.AdvancedMarkerElement({
+              position: { lat: point.latitude, lng: point.longitude },
+              map: mapInstanceRef.current,
+              content: markerElement,
+            });
+            sequenceMarkersRef.current.push(marker);
+          });
+        }
+      });
+    } else {
+      // Fallback: no per-point sessionId available, use processed/raw encoded polyline as a single route.
+      const polyline = timeline.processedRoute?.encodedProcessedPolyline;
+      if (polyline) {
+        const path = decodePolyline(polyline).map(([lat, lng]) => ({ lat, lng }));
+        firstPathPoint = path[0] || null;
+        const segments = buildPathSegments(path, 250);
+        segments.forEach((segment) => {
+          const segmentPolyline = new googleObj.maps.Polyline({
+            path: segment,
+            geodesic: true,
+            strokeColor: "#2196F3",
+            strokeOpacity: 0.8,
+            strokeWeight: 4,
+          });
+          segmentPolyline.setMap(mapInstanceRef.current);
+          polylinesRef.current.push(segmentPolyline);
+          segment.forEach((p) => bounds.extend(new googleObj.maps.LatLng(p.lat, p.lng)));
+        });
+      }
     }
 
-    if (path.length > 0) {
-      const segments = buildPathSegments(path, 250);
-      const googleObj = (window as any).google;
-      const bounds = new googleObj.maps.LatLngBounds();
+    if (!bounds.isEmpty()) {
+      mapInstanceRef.current?.fitBounds(bounds);
+    }
 
-      segments.forEach((segment) => {
-        const segmentPolyline = new googleObj.maps.Polyline({
-          path: segment,
-          geodesic: true,
-          strokeColor: "#2196F3",
-          strokeOpacity: 0.8,
-          strokeWeight: 4,
-        });
-        segmentPolyline.setMap(mapInstanceRef.current);
-        polylinesRef.current.push(segmentPolyline);
-        segment.forEach((p) => bounds.extend(new googleObj.maps.LatLng(p.lat, p.lng)));
-      });
-
-      if (!bounds.isEmpty()) {
-        mapInstanceRef.current?.fitBounds(bounds);
-      }
-
+    if (firstPathPoint) {
       // Create playback marker and ensure it's on top
       const playbackMarkerElement = document.createElement("div");
       playbackMarkerElement.style.width = "20px";
@@ -255,10 +320,8 @@ export const Map = () => {
       playbackMarkerElement.style.position = "relative";
       playbackMarkerElement.style.zIndex = "9999";
 
-      // reuse googleObj declared above
-      // Some marker implementations respect zIndex option; set both.
       playbackMarkerRef.current = new googleObj.maps.marker.AdvancedMarkerElement({
-        position: path[0],
+        position: firstPathPoint,
         map: mapInstanceRef.current,
         content: playbackMarkerElement,
         zIndex: 9999,
@@ -278,39 +341,8 @@ export const Map = () => {
           // ignore
         }
       }, 150);
-
-      rawPointsRef.current = timeline.rawPoints || [];
     }
-
-    // Render sequence markers if enabled
-    if (showSequenceMarkers && timeline.rawPoints) {
-      timeline.rawPoints.forEach((point) => {
-        const markerElement = document.createElement("div");
-        markerElement.style.width = "32px";
-        markerElement.style.height = "32px";
-        markerElement.style.borderRadius = "50%";
-        markerElement.style.backgroundColor = "#FF5722";
-        markerElement.style.color = "white";
-        markerElement.style.display = "flex";
-        markerElement.style.alignItems = "center";
-        markerElement.style.justifyContent = "center";
-        markerElement.style.fontSize = "12px";
-        markerElement.style.fontWeight = "bold";
-        markerElement.style.border = "2px solid white";
-        markerElement.style.boxShadow = "0 2px 6px rgba(0,0,0,0.3)";
-        markerElement.textContent = point.sequenceNo.toString();
-        markerElement.title = `Point #${point.sequenceNo} - ${new Date(point.capturedAt).toLocaleString()}`;
-
-        const googleObj = (window as any).google;
-        const marker = new googleObj.maps.marker.AdvancedMarkerElement({
-          position: { lat: point.latitude, lng: point.longitude },
-          map: mapInstanceRef.current,
-          content: markerElement,
-        });
-        sequenceMarkersRef.current.push(marker);
-      });
-    }
-  }, [timeline, showRaw, showSequenceMarkers, mapsLoaded]);
+  }, [timeline, viewMode, selectedSessionId, mapsLoaded]);
 
   useEffect(() => {
     if (!timeline || !playbackMarkerRef.current || rawPointsRef.current.length === 0) {
@@ -340,27 +372,56 @@ export const Map = () => {
     }
   }, [playbackTime, timeline]);
 
+  const sessionLegend = React.useMemo(() => {
+    const rawPoints = timeline?.rawPoints || [];
+    const order: string[] = [];
+    rawPoints.forEach((p: RawLocationPoint) => {
+      if (p.sessionId && !order.includes(p.sessionId)) order.push(p.sessionId);
+    });
+    return order;
+  }, [timeline]);
+
   return (
     <div className="flex-1 h-full relative">
       <div ref={mapRef} className="w-full h-full" />
       {selectedEmployee && timeline && (
-        <div className="absolute top-4 right-4 bg-white p-3 rounded-md shadow-md flex flex-col items-start gap-3">
-          <label className="text-sm flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={showRaw}
-              onChange={(e) => setShowRaw(e.target.checked)}
-            />
-            Show Raw Path
-          </label>
-          <label className="text-sm flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={showSequenceMarkers}
-              onChange={(e) => setShowSequenceMarkers(e.target.checked)}
-            />
-            Show Sequence Numbers
-          </label>
+        <div className="absolute top-4 right-4 bg-white dark:bg-slate-900 p-3 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 flex flex-col gap-3 min-w-[180px]">
+          <div className="flex bg-slate-100 dark:bg-slate-800 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode("route")}
+              className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md cursor-pointer transition-colors ${
+                viewMode === "route"
+                  ? "bg-white dark:bg-slate-700 shadow-sm text-slate-900 dark:text-white"
+                  : "text-slate-500 dark:text-slate-400"
+              }`}
+            >
+              Route
+            </button>
+            <button
+              onClick={() => setViewMode("sequence")}
+              className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md cursor-pointer transition-colors ${
+                viewMode === "sequence"
+                  ? "bg-white dark:bg-slate-700 shadow-sm text-slate-900 dark:text-white"
+                  : "text-slate-500 dark:text-slate-400"
+              }`}
+            >
+              Sequence
+            </button>
+          </div>
+
+          {sessionLegend.length > 1 && (
+            <div className="space-y-1.5 border-t border-slate-100 dark:border-slate-800 pt-2">
+              {sessionLegend.map((sessionId, idx) => (
+                <div key={sessionId} className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: getSessionColor(idx) }}
+                  />
+                  Session {idx + 1}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

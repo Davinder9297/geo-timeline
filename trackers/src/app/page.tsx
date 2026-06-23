@@ -1,240 +1,270 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useTracker } from "@/context/TrackerContext";
-import type { AttendanceDaily } from "@/types";
+import { TrackerMap } from "@/components/TrackerMap";
+import { TrackerSidebar } from "@/components/TrackerSidebar";
+import { getSessionColor } from "@/utils";
 
-export default function Home() {
-  const {
-    user,
-    login,
-    logout,
-    trackingState,
-    startTracking,
-    stopTracking,
-    queue,
-    lastSyncTime,
-    lastError,
-    attendances,
-    selectedAttendance,
-    setSelectedAttendance,
-    createAttendance,
-    checkOutAttendance,
-    isCreatingAttendance,
-    isCheckingOut,
-    totalDistance,
-    isHydrated,
-  } = useTracker();
-
+function AuthScreen() {
+  const { login, signup } = useTracker();
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [employeeId, setEmployeeId] = useState("");
-  const [companyId, setCompanyId] = useState("");
+  const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
-
     try {
-      await login(companyId, employeeId, password);
-    } catch {
-      setError("Invalid credentials, please try again.");
+      if (authMode === "login") {
+        await login(employeeId, password);
+      } else {
+        await signup(employeeId, name, password);
+      }
+    } catch (err) {
+      setError(
+        authMode === "login"
+          ? "Invalid credentials, please try again."
+          : (err as Error).message || "Sign up failed"
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCreateAttendance = async () => {
-    setError("");
-    try {
-      await createAttendance();
-    } catch (err) {
-      setError((err as Error).message || "Failed to create attendance");
+  return (
+    <div className="min-h-screen relative overflow-hidden bg-slate-950 text-white flex items-center justify-center p-4">
+      <div className="absolute -top-40 -left-40 w-96 h-96 rounded-full bg-cyan-500/20 blur-3xl" />
+      <div className="absolute -bottom-40 -right-20 w-96 h-96 rounded-full bg-violet-500/20 blur-3xl" />
+
+      <div className="relative w-full max-w-sm">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-400 to-violet-500 mb-4">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 1 1 18 0z" />
+              <circle cx="12" cy="10" r="3" />
+            </svg>
+          </div>
+          <h1 className="text-xl font-bold tracking-tight">Employee Location Tracking System</h1>
+          <p className="text-xs text-white/40 mt-1">Live attendance & location tracking</p>
+        </div>
+
+        <div className="bg-white/5 backdrop-blur border border-white/10 rounded-2xl p-6">
+          <div className="flex mb-6 bg-white/5 rounded-lg p-1">
+            <button
+              type="button"
+              onClick={() => setAuthMode("login")}
+              className={`flex-1 py-2 text-sm font-medium rounded-md cursor-pointer transition-colors ${
+                authMode === "login" ? "bg-white/10 text-white" : "text-white/40"
+              }`}
+            >
+              Log In
+            </button>
+            <button
+              type="button"
+              onClick={() => setAuthMode("signup")}
+              className={`flex-1 py-2 text-sm font-medium rounded-md cursor-pointer transition-colors ${
+                authMode === "signup" ? "bg-white/10 text-white" : "text-white/40"
+              }`}
+            >
+              Sign Up
+            </button>
+          </div>
+
+          {error && (
+            <div className="mb-4 px-3 py-2 bg-rose-500/10 text-rose-300 border border-rose-500/20 rounded-xl text-xs">
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleAuthSubmit} className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium mb-1.5 text-white/50">Employee ID</label>
+              <input
+                type="text"
+                value={employeeId}
+                onChange={(e) => setEmployeeId(e.target.value)}
+                required
+                className="w-full px-3.5 py-2.5 bg-white/5 border border-white/10 text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/40"
+              />
+            </div>
+
+            {authMode === "signup" && (
+              <div>
+                <label className="block text-xs font-medium mb-1.5 text-white/50">Full Name</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-white/5 border border-white/10 text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/40"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-medium mb-1.5 text-white/50">Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="w-full px-3.5 py-2.5 bg-white/5 border border-white/10 text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/40"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-2.5 mt-2 rounded-xl bg-gradient-to-r from-cyan-400 to-violet-500 text-slate-950 font-semibold text-sm cursor-pointer hover:opacity-90 disabled:opacity-50 transition-opacity"
+            >
+              {loading
+                ? authMode === "login" ? "Logging in…" : "Creating account…"
+                : authMode === "login" ? "Log In" : "Create Account"}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function Home() {
+  const { user, isHydrated, currentLocation, timeline, selectedTimelineDate } = useTracker();
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"route" | "sequence">("route");
+  const [mobileView, setMobileView] = useState<"map" | "panel">("map");
+
+  const today = new Date().toISOString().split("T")[0];
+
+  // Default the selected session to the currently-open one (or most recent)
+  // whenever the timeline for the chosen date loads.
+  useEffect(() => {
+    const sessions = timeline?.attendance?.sessions || [];
+    if (sessions.length === 0) {
+      setSelectedSessionId(null);
+      return;
     }
-  };
+    const open = sessions.find((s) => !s.checkOutAt);
+    setSelectedSessionId((open || sessions[sessions.length - 1]).sessionId);
+  }, [timeline]);
 
-  const handleCheckOut = async () => {
-    setError("");
-    try {
-      await checkOutAttendance();
-    } catch (err) {
-      setError((err as Error).message || "Failed to check out");
-    }
-  };
-
-  const today = new Date().toISOString().split('T')[0];
-  const todayAttendance = attendances?.find(a => a.attendanceDate === today && !a.finalCheckOutAt);
-
-  // Wait for hydration
   if (!isHydrated) {
     return (
-      <div className="max-w-2xl mx-auto p-4 sm:p-6 bg-white dark:bg-slate-900 min-h-screen text-gray-900 dark:text-slate-100">
-        <h1 className="text-2xl font-bold text-center mb-6 text-gray-900 dark:text-white">Geo Tracker Client</h1>
-        <div className="text-center text-gray-500 dark:text-slate-400">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <div className="text-white/40 text-sm">Loading…</div>
       </div>
     );
   }
 
+  if (!user) return <AuthScreen />;
+
+  const sessions = timeline?.attendance?.sessions || [];
+  const sessionIdx = sessions.findIndex((s) => s.sessionId === selectedSessionId);
+  const selectedSession = sessionIdx >= 0 ? sessions[sessionIdx] : null;
+  const sessionColor = getSessionColor(sessionIdx >= 0 ? sessionIdx : 0);
+
   return (
-    <div className="max-w-2xl mx-auto p-4 sm:p-6 bg-white dark:bg-slate-900 min-h-screen text-gray-900 dark:text-slate-100">
-      <h1 className="text-2xl font-bold text-center mb-6 text-gray-900 dark:text-white">Geo Tracker Client</h1>
-
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-900/30 rounded-md text-sm">
-          {error}
+    <div className="h-screen flex flex-col bg-slate-950 overflow-hidden">
+      {/* Top bar */}
+      <div className="h-12 shrink-0 flex items-center justify-between px-4 border-b border-white/10 bg-slate-950">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-cyan-400 to-violet-500 shrink-0" />
+          <span className="text-sm font-bold text-white tracking-tight truncate">
+            <span className="sm:hidden">ELTS</span>
+            <span className="hidden sm:inline">Employee Location Tracking System</span>
+          </span>
         </div>
-      )}
-
-      {!user ? (
-        <form onSubmit={handleLogin} className="space-y-4 bg-gray-50 dark:bg-slate-800/30 p-6 rounded-lg border border-gray-100 dark:border-slate-800">
-          <div>
-            <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-slate-300">Company ID</label>
-            <input
-              type="text"
-              value={companyId}
-              onChange={(e) => setCompanyId(e.target.value)}
-              required
-              className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white rounded-md focus:outline-none focus:border-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-slate-300">Employee ID</label>
-            <input
-              type="text"
-              value={employeeId}
-              onChange={(e) => setEmployeeId(e.target.value)}
-              required
-              className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white rounded-md focus:outline-none focus:border-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-slate-300">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white rounded-md focus:outline-none focus:border-blue-500"
-            />
-          </div>
+        <div className="flex lg:hidden bg-white/5 rounded-lg p-0.5">
           <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-400 cursor-pointer font-medium"
+            onClick={() => setMobileView("map")}
+            className={`px-3 py-1 text-xs font-medium rounded-md cursor-pointer ${
+              mobileView === "map" ? "bg-white/10 text-white" : "text-white/40"
+            }`}
           >
-            {loading ? "Logging in..." : "Login"}
+            Map
           </button>
-        </form>
-      ) : (
-        <div className="space-y-6">
-          <div className="flex justify-between items-center bg-gray-50 dark:bg-slate-800/30 p-4 rounded-md border border-gray-100 dark:border-slate-800">
-            <div className="text-sm space-y-1">
-              <p className="text-gray-700 dark:text-slate-300"><strong>Name:</strong> <span className="text-gray-900 dark:text-slate-100">{user.name}</span></p>
-              <p className="text-gray-700 dark:text-slate-300"><strong>Employee:</strong> <span className="text-gray-900 dark:text-slate-100">{user.employeeId}</span></p>
-              <p className="text-gray-700 dark:text-slate-300"><strong>Company:</strong> <span className="text-gray-900 dark:text-slate-100">{user.companyId}</span></p>
-            </div>
+          <button
+            onClick={() => setMobileView("panel")}
+            className={`px-3 py-1 text-xs font-medium rounded-md cursor-pointer ${
+              mobileView === "panel" ? "bg-white/10 text-white" : "text-white/40"
+            }`}
+          >
+            Panel
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 flex overflow-hidden">
+        {/* Sidebar */}
+        <aside
+          className={`w-full lg:w-[360px] shrink-0 border-r border-white/10 bg-slate-950 ${
+            mobileView === "panel" ? "flex" : "hidden lg:flex"
+          }`}
+        >
+          <TrackerSidebar selectedSessionId={selectedSessionId} onSelectSession={setSelectedSessionId} />
+        </aside>
+
+        {/* Map — takes priority space */}
+        <main className={`flex-1 relative ${mobileView === "map" ? "block" : "hidden lg:block"}`}>
+          <TrackerMap
+            timeline={timeline}
+            selectedSessionId={selectedSessionId}
+            currentLocation={selectedTimelineDate === today ? currentLocation : null}
+            viewMode={viewMode}
+          />
+
+          {/* Floating view-mode toggle */}
+          <div className="absolute top-4 right-4 flex bg-slate-950/80 backdrop-blur border border-white/10 rounded-xl p-1 shadow-lg">
             <button
-              onClick={logout}
-              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 cursor-pointer text-sm font-medium"
+              onClick={() => setViewMode("route")}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg cursor-pointer transition-colors ${
+                viewMode === "route" ? "bg-white/10 text-white" : "text-white/40"
+              }`}
             >
-              Logout
+              Route
+            </button>
+            <button
+              onClick={() => setViewMode("sequence")}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg cursor-pointer transition-colors ${
+                viewMode === "sequence" ? "bg-white/10 text-white" : "text-white/40"
+              }`}
+            >
+              Sequence
             </button>
           </div>
 
-          {!todayAttendance && !user.attendanceId ? (
-            <button
-              onClick={handleCreateAttendance}
-              disabled={isCreatingAttendance}
-              className="w-full py-3 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 cursor-pointer font-semibold"
-            >
-              {isCreatingAttendance ? "Creating..." : "Check In"}
-            </button>
-          ) : selectedAttendance || user.attendanceId ? (
-            <div className="space-y-4">
-              <div className="bg-gray-50 dark:bg-slate-800/50 p-4 rounded-md border border-gray-100 dark:border-slate-800">
-                {/* eslint-disable-next-line react/no-unescaped-entities */}
-                <h3 className="font-semibold mb-2 text-gray-900 dark:text-slate-100">Today's Attendance</h3>
-                <div className="text-sm space-y-1 text-gray-700 dark:text-slate-300">
-                  <p><strong>Date:</strong> {new Date((selectedAttendance || todayAttendance)?.attendanceDate || today).toLocaleDateString()}</p>
-                  <p><strong>Check In At:</strong> {new Date((selectedAttendance || todayAttendance)?.firstCheckInAt || "").toLocaleString()}</p>
-                  <p><strong>Status:</strong> <span className="text-blue-600 dark:text-blue-400 font-semibold">{(selectedAttendance || todayAttendance)?.status}</span></p>
-                </div>
-              </div>
-
-              {trackingState !== "active" && !(selectedAttendance || todayAttendance)?.finalCheckOutAt && (
-                <button
-                  onClick={startTracking}
-                  disabled={trackingState !== "idle"}
-                  className="w-full py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 cursor-pointer font-semibold"
-                >
-                  Start Tracking
-                </button>
-              )}
-
-              {trackingState === "active" && (
-                <button
-                  onClick={stopTracking}
-                  className="w-full py-3 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 cursor-pointer font-semibold"
-                >
-                  Stop Tracking
-                </button>
-              )}
-
-              {!(selectedAttendance || todayAttendance)?.finalCheckOutAt && (
-                <button
-                  onClick={handleCheckOut}
-                  disabled={isCheckingOut}
-                  className="w-full py-3 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-gray-400 cursor-pointer font-semibold"
-                >
-                  {isCheckingOut ? "Checking Out..." : "Check Out"}
-                </button>
-              )}
-            </div>
-          ) : null}
-
-          <div className="bg-gray-50 dark:bg-slate-800/50 p-4 rounded-md border border-gray-100 dark:border-slate-800">
-            <h3 className="font-semibold mb-2 text-gray-900 dark:text-slate-100">Status</h3>
-            <div className="text-sm space-y-1 text-gray-700 dark:text-slate-300">
-              <p><strong>Tracking State:</strong> <span className="font-medium text-gray-900 dark:text-slate-200">{trackingState}</span></p>
-              <p><strong>Queued Points:</strong> <span className="font-medium text-gray-900 dark:text-slate-200">{queue.length}</span></p>
-              <p><strong>Last Sync:</strong> <span className="font-medium text-gray-900 dark:text-slate-200">{lastSyncTime ? lastSyncTime.toLocaleString() : "Never"}</span></p>
-              <p><strong>Total Distance Moved:</strong> <span className="font-medium text-gray-900 dark:text-slate-200">{totalDistance.toFixed(2)} meters</span></p>
-            </div>
-            {lastError && (
-              <p className="text-red-600 dark:text-red-400 mt-2 text-sm"><strong>Last Error:</strong> {lastError}</p>
-            )}
-          </div>
-
-          {attendances && attendances.length > 0 && (
-            <div className="bg-gray-50 dark:bg-slate-800/50 p-4 rounded-md border border-gray-100 dark:border-slate-800">
-              <h3 className="font-semibold mb-2 text-gray-900 dark:text-slate-100">Recent Attendances</h3>
-              <div className="space-y-2">
-                {attendances.map((attendance) => (
-                  <div
-                    key={attendance._id}
-                    className={`p-3 rounded-md cursor-pointer transition-colors ${
-                      (selectedAttendance?._id || user.attendanceId) === attendance._id
-                        ? "bg-blue-100 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-800/50"
-                        : "bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/50"
-                    }`}
-                  >
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium text-gray-900 dark:text-slate-100">{new Date(attendance.attendanceDate).toLocaleDateString()}</span>
-                      <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">{attendance.status}</span>
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-                      Check In: {new Date(attendance.firstCheckInAt).toLocaleTimeString()}
-                      {attendance.finalCheckOutAt && ` | Check Out: ${new Date(attendance.finalCheckOutAt).toLocaleTimeString()}`}
-                    </div>
-                  </div>
-                ))}
-              </div>
+          {/* Floating selected-session pill */}
+          {selectedSession && (
+            <div className="absolute top-4 left-4 flex items-center gap-2 bg-slate-950/80 backdrop-blur border border-white/10 rounded-xl px-3 py-2 shadow-lg">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: sessionColor }} />
+              <span className="text-xs font-medium text-white">
+                Session {sessionIdx + 1} ·{" "}
+                {new Date(selectedSession.checkInAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                {" – "}
+                {selectedSession.checkOutAt
+                  ? new Date(selectedSession.checkOutAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                  : "now"}
+              </span>
             </div>
           )}
-        </div>
-      )}
+
+          {/* Floating live indicator */}
+          {currentLocation && selectedTimelineDate === today && (
+            <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-slate-950/80 backdrop-blur border border-white/10 rounded-xl px-3 py-2 shadow-lg">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-60" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-400" />
+              </span>
+              <span className="text-xs font-medium text-white/80">Live location</span>
+            </div>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

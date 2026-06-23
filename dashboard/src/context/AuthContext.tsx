@@ -9,7 +9,7 @@ import { UserState, UserRole } from "../types";
 interface AuthContextType {
   user: UserState | null;
   isLoading: boolean;
-  login: (companyId: string, employeeId: string, password: string) => Promise<void>;
+  login: (employeeId: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -43,12 +43,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setIsHydrated(true);
   }, []);
 
-  const login = async (companyId: string, employeeId: string, password: string) => {
+  const login = async (employeeId: string, password: string) => {
     console.log("[AuthContext] Logging in...");
     const response = await fetch(`${CONFIG.API_BASE_URL}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ companyId, employeeId, password }),
+      body: JSON.stringify({ employeeId, password }),
     });
 
     if (!response.ok) {

@@ -68,18 +68,27 @@ export class GeoTrackingService {
       attendanceDate: today,
     });
 
+    const sessionId = uuidv4();
+
     if (existing) {
-      // If the attendance exists and has a final check-out, inform the user they can't re-check-in
-      if (existing.finalCheckOutAt) {
-        throw new ConflictException(
-          'You have already checked out today; you cannot check in again'
-        );
+      const lastSession = existing.sessions[existing.sessions.length - 1];
+      if (lastSession && !lastSession.checkOutAt) {
+        throw new ConflictException('You have already checked in today');
       }
-      // Otherwise, they have already checked in
-      throw new ConflictException('You have already checked in today');
+
+      existing.sessions.push({
+        sessionId,
+        checkInAt: new Date(),
+        breaks: [],
+      });
+      existing.status = AttendanceStatus.WORKING;
+      existing.finalCheckOutAt = undefined;
+      existing.trackingStoppedAt = undefined;
+
+      await existing.save();
+      return existing;
     }
 
-    const sessionId = uuidv4();
     const attendance = new this.attendanceDailyModel({
       companyId: user.companyId,
       employeeId: user.employeeId,
@@ -121,20 +130,20 @@ export class GeoTrackingService {
           throw new NotFoundException('Attendance not found');
         }
 
-        if (attendance.finalCheckOutAt) {
+        const lastSession =
+          attendance.sessions[attendance.sessions.length - 1];
+        if (!lastSession || lastSession.checkOutAt) {
           throw new ConflictException('Already checked out');
         }
 
-        if (attendance.sessions.length > 0) {
-          const lastSession = attendance.sessions[attendance.sessions.length - 1];
-          lastSession.checkOutAt = new Date();
-        }
+        const checkOutAt = new Date();
+        lastSession.checkOutAt = checkOutAt;
 
         const updated = await this.attendanceDailyModel.findByIdAndUpdate(
           attendanceId,
           {
             $set: {
-              finalCheckOutAt: new Date(),
+              finalCheckOutAt: checkOutAt,
               status: AttendanceStatus.CHECKED_OUT,
               sessions: attendance.sessions,
             },
@@ -594,6 +603,64 @@ export class GeoTrackingService {
     });
   }
 
+  async getEmployeeStats(
+    companyId: string,
+    employeeId: string,
+    days: number,
+  ): Promise<
+    {
+      date: string;
+      workingSeconds: number;
+      distanceMeters: number;
+      sessionsCount: number;
+    }[]
+  > {
+    const safeDays = Math.min(Math.max(days || 7, 1), 90);
+    const dateKeys: string[] = [];
+    for (let i = safeDays - 1; i >= 0; i -= 1) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      dateKeys.push(d.toISOString().split('T')[0]);
+    }
+
+    const [attendances, summaries] = await Promise.all([
+      this.attendanceDailyModel
+        .find({
+          companyId,
+          employeeId,
+          attendanceDate: { $gte: dateKeys[0], $lte: dateKeys[dateKeys.length - 1] },
+        })
+        .select('attendanceDate sessions')
+        .lean(),
+      this.attendanceTimelineSummaryModel
+        .find({
+          companyId,
+          employeeId,
+          attendanceDate: { $gte: dateKeys[0], $lte: dateKeys[dateKeys.length - 1] },
+        })
+        .select('attendanceDate workingSeconds processedDistanceMeters')
+        .lean(),
+    ]);
+
+    const attendanceByDate = new Map(
+      attendances.map((a) => [a.attendanceDate, a]),
+    );
+    const summaryByDate = new Map(
+      summaries.map((s) => [s.attendanceDate, s]),
+    );
+
+    return dateKeys.map((date) => {
+      const attendance = attendanceByDate.get(date);
+      const summary = summaryByDate.get(date);
+      return {
+        date,
+        workingSeconds: summary?.workingSeconds || 0,
+        distanceMeters: summary?.processedDistanceMeters || 0,
+        sessionsCount: attendance?.sessions?.length || 0,
+      };
+    });
+  }
+
   async getEmployeeGeoTimeline(
     companyId: string,
     employeeId: string,
@@ -618,7 +685,7 @@ export class GeoTrackingService {
     const rawPointsDb = await this.locationPointModel
       .find({ attendanceId: attendanceIdString })
       .sort({ capturedAt: 1, sequenceNo: 1 })
-      .select('location sequenceNo capturedAt')
+      .select('location sequenceNo capturedAt sessionId')
       .lean();
 
     const rawPoints = rawPointsDb.map((p) => ({
@@ -626,6 +693,7 @@ export class GeoTrackingService {
       longitude: p.location?.coordinates?.[0] ?? 0,
       sequenceNo: p.sequenceNo,
       capturedAt: p.capturedAt,
+      sessionId: p.sessionId,
     }));
 
     const summaryAvailable = !!summary;

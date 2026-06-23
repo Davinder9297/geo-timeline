@@ -3,7 +3,7 @@
 import React, { useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { useCrm } from "@/context/CrmContext";
-import { formatTime, formatDistance } from "@/utils";
+import { formatTime, formatDistance, getSessionColor } from "@/utils";
 
 export const RightPanel = ({ className = "" }: { className?: string }) => {
   const {
@@ -12,6 +12,7 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
     errorTimeline,
     selectedDate,
     setSelectedDate,
+    selectedEmployee,
     rebuildTimeline,
     isPlaying,
     setIsPlaying,
@@ -20,6 +21,8 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
     playbackTime,
     setPlaybackTime,
     timelineDurationSeconds,
+    selectedSessionId,
+    setSelectedSessionId,
   } = useCrm();
   const animationRef = useRef<number | null>(null);
   const playbackTimeRef = useRef<number>(playbackTime);
@@ -72,7 +75,7 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
           type="date"
           value={selectedDate}
           onChange={(e) => setSelectedDate(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white rounded-md text-sm focus:outline-none focus:border-blue-500"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500"
         />
       </div>
 
@@ -83,17 +86,65 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
         {errorTimeline && (
           <div className="text-center text-red-600 dark:text-red-400 py-8">Error: {errorTimeline}</div>
         )}
+        {!loadingTimeline && !errorTimeline && !timeline && selectedEmployee && (
+          <div className="text-center p-6 bg-gray-50 dark:bg-slate-800/50 border border-gray-100 dark:border-slate-800 rounded-xl">
+            <div className="text-sm text-gray-500 dark:text-slate-400">
+              {selectedEmployee.name}{" "}
+              {selectedDate === new Date().toISOString().split("T")[0] ? "has" : "had"} not checked in on{" "}
+              {format(new Date(selectedDate), "MMM d, yyyy")}
+            </div>
+          </div>
+        )}
         {!loadingTimeline && !errorTimeline && timeline && !timeline.summaryAvailable && (
           <div className="text-center p-4 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-900/30 rounded-md">
             <div className="mb-3 font-medium text-yellow-800 dark:text-yellow-300">Timeline not yet calculated</div>
             {timeline.attendance && (
               <button
                 onClick={() => rebuildTimeline(timeline.attendance._id)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm cursor-pointer"
+                className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-violet-500 text-white rounded-lg hover:opacity-90 text-sm font-medium cursor-pointer transition-opacity"
               >
                 Rebuild Timeline
               </button>
             )}
+          </div>
+        )}
+        {!loadingTimeline && !errorTimeline && timeline && timeline.attendance?.sessions?.length > 0 && (
+          <div>
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-slate-200 mb-3">Sessions</h3>
+            <div className="space-y-2">
+              {timeline.attendance.sessions.map((s, i) => {
+                const isSelected = selectedSessionId === s.sessionId;
+                const durationMin = s.checkOutAt
+                  ? Math.round((new Date(s.checkOutAt).getTime() - new Date(s.checkInAt).getTime()) / 60000)
+                  : null;
+                return (
+                  <button
+                    key={s.sessionId}
+                    onClick={() => setSelectedSessionId(isSelected ? null : s.sessionId)}
+                    className={`w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-colors cursor-pointer ${
+                      isSelected
+                        ? "border-cyan-300 dark:border-cyan-700 bg-cyan-50 dark:bg-cyan-900/20"
+                        : "border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/50 hover:bg-gray-100 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: getSessionColor(i) }}
+                        />
+                        <span className="font-medium text-gray-900 dark:text-slate-100">
+                          {format(new Date(s.checkInAt), "h:mm a")} – {s.checkOutAt ? format(new Date(s.checkOutAt), "h:mm a") : "now"}
+                        </span>
+                      </div>
+                      {durationMin !== null && (
+                        <span className="text-xs text-gray-500 dark:text-slate-400">{durationMin} min</span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
         {!loadingTimeline && !errorTimeline && timeline && timeline.summaryAvailable && (
@@ -119,9 +170,9 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
             <div>
               <h3 className="text-sm font-semibold text-gray-800 dark:text-slate-200 mb-3">Time Breakdown</h3>
               <div className="grid grid-cols-2 gap-3">
-                <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md border border-blue-100 dark:border-blue-900/30">
-                  <div className="text-xs text-blue-600 dark:text-blue-400 mb-1">Working</div>
-                  <div className="text-base font-bold text-blue-900 dark:text-blue-100">
+                <div className="bg-cyan-50 dark:bg-cyan-900/20 p-3 rounded-md border border-cyan-100 dark:border-cyan-900/30">
+                  <div className="text-xs text-cyan-600 dark:text-cyan-400 mb-1">Working</div>
+                  <div className="text-base font-bold text-cyan-900 dark:text-cyan-100">
                     {formatTime(timeline.totals?.workingSeconds || 0)}
                   </div>
                 </div>

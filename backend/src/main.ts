@@ -37,7 +37,7 @@ async function bootstrap() {
   // Validate/transform incoming DTOs (class-validator decorators were previously unenforced)
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: false,
+      whitelist: true,
       transform: true,
       forbidUnknownValues: false,
     }),

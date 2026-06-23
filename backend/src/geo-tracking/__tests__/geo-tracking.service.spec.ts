@@ -107,6 +107,79 @@ describe('GeoTrackingService', () => {
     expect(service).toBeDefined();
   });
 
+  describe('createAttendance - multi-session check-in', () => {
+    it('appends a new session when last session is closed', async () => {
+      const existing = {
+        _id: 'att-1',
+        companyId: 'comp-1',
+        employeeId: 'emp-1',
+        sessions: [
+          { sessionId: 'ses-1', checkInAt: new Date(), checkOutAt: new Date() },
+        ],
+        status: AttendanceStatus.CHECKED_OUT,
+        finalCheckOutAt: new Date(),
+        save: jest.fn().mockResolvedValue(undefined),
+      };
+      attendanceDailyModel.findOne.mockResolvedValue(existing as any);
+
+      const result = await service.createAttendance(user);
+
+      expect(result.sessions.length).toBe(2);
+      expect(result.status).toBe(AttendanceStatus.WORKING);
+      expect(result.finalCheckOutAt).toBeUndefined();
+      expect(existing.save).toHaveBeenCalled();
+    });
+
+    it('throws if the last session is still open', async () => {
+      const existing = {
+        _id: 'att-1',
+        companyId: 'comp-1',
+        employeeId: 'emp-1',
+        sessions: [{ sessionId: 'ses-1', checkInAt: new Date() }],
+        status: AttendanceStatus.WORKING,
+        save: jest.fn(),
+      };
+      attendanceDailyModel.findOne.mockResolvedValue(existing as any);
+
+      await expect(service.createAttendance(user)).rejects.toThrow(
+        'You have already checked in today',
+      );
+    });
+  });
+
+  describe('getEmployeeStats', () => {
+    it('zero-fills days with no attendance and aggregates days that have data', async () => {
+      const today = new Date().toISOString().split('T')[0];
+
+      attendanceDailyModel.find.mockReturnValue(
+        mockFindChain([{ attendanceDate: today, sessions: [{}, {}] }]),
+      );
+      const summaryModel = (service as any).attendanceTimelineSummaryModel;
+      summaryModel.find.mockReturnValue(
+        mockFindChain([
+          { attendanceDate: today, workingSeconds: 3600, processedDistanceMeters: 500 },
+        ]),
+      );
+
+      const result = await service.getEmployeeStats('comp-1', 'emp-1', 3);
+
+      expect(result).toHaveLength(3);
+      const todayEntry = result.find((r) => r.date === today);
+      expect(todayEntry).toEqual({
+        date: today,
+        workingSeconds: 3600,
+        distanceMeters: 500,
+        sessionsCount: 2,
+      });
+      const emptyEntries = result.filter((r) => r.date !== today);
+      emptyEntries.forEach((entry) => {
+        expect(entry.workingSeconds).toBe(0);
+        expect(entry.distanceMeters).toBe(0);
+        expect(entry.sessionsCount).toBe(0);
+      });
+    });
+  });
+
   describe('batchInsertLocationPoints - duplicate detection', () => {
     it('should mark points as duplicate if clientPointId exists', async () => {
       const mockAttendance = {

@@ -1,11 +1,12 @@
-import { IsString, IsNotEmpty, IsEnum, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsEnum, IsOptional, MinLength } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { UserRole } from '../schemas/employee.schema';
 
-export class LoginDto {
-  @IsString()
-  @IsNotEmpty()
-  companyId: string;
+const trim = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
 
+export class LoginDto {
+  @Transform(trim)
   @IsString()
   @IsNotEmpty()
   employeeId: string;
@@ -16,20 +17,19 @@ export class LoginDto {
 }
 
 export class CreateEmployeeDto {
-  @IsString()
-  @IsNotEmpty()
-  companyId: string;
-
+  @Transform(trim)
   @IsString()
   @IsNotEmpty()
   employeeId: string;
 
+  @Transform(trim)
   @IsString()
   @IsNotEmpty()
   name: string;
 
   @IsString()
   @IsNotEmpty()
+  @MinLength(4)
   password: string;
 
   @IsEnum(UserRole)

@@ -1,6 +1,7 @@
 import { registerAs } from '@nestjs/config';
 
 export default registerAs('geoTracking', () => ({
+  defaultCompanyId: process.env.DEFAULT_COMPANY_ID || 'default-company',
   locationIntervalSeconds: parseInt(
     process.env.LOCATION_INTERVAL_SECONDS || '30',
     10,

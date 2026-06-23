@@ -3,6 +3,7 @@ import {
   Post,
   Param,
   Body,
+  Query,
   UseGuards,
   Request,
   Get,
@@ -23,6 +24,32 @@ export class GeoTrackingController {
   @Get()
   async getAttendances(@Request() req: RequestWithUser) {
     const data = await this.geoTrackingService.getEmployeeAttendances(req.user);
+    return { success: true, data };
+  }
+
+  @Get('timeline')
+  async getOwnTimeline(
+    @Query('date') date: string,
+    @Request() req: RequestWithUser,
+  ) {
+    const data = await this.geoTrackingService.getEmployeeGeoTimeline(
+      req.user.companyId,
+      req.user.employeeId,
+      date,
+    );
+    return { success: true, data };
+  }
+
+  @Get('stats')
+  async getOwnStats(
+    @Query('days') days: string,
+    @Request() req: RequestWithUser,
+  ) {
+    const data = await this.geoTrackingService.getEmployeeStats(
+      req.user.companyId,
+      req.user.employeeId,
+      days ? parseInt(days, 10) : 7,
+    );
     return { success: true, data };
   }
 
