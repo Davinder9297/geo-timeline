@@ -28,17 +28,20 @@ export class EmployeeLiveLocation extends Document {
   @Prop({ required: true })
   attendanceId: string;
 
-  @Prop({ required: true })
-  latestPointId: string;
+  @Prop({ required: false })
+  latestPointId?: string;
 
-  @Prop({ required: true, type: GeoJSONPoint, index: '2dsphere' })
-  location: GeoJSONPoint;
+  // Optional: unknown until the employee's first GPS fix arrives, which can
+  // be a while after check-in (cold GPS lock, no signal indoors, etc.). The
+  // roster must still show the employee as checked in before that happens.
+  @Prop({ required: false, type: GeoJSONPoint, index: '2dsphere' })
+  location?: GeoJSONPoint;
 
-  @Prop({ required: true })
-  capturedAt: Date;
+  @Prop({ required: false })
+  capturedAt?: Date;
 
-  @Prop({ required: true })
-  receivedAt: Date;
+  @Prop({ required: false })
+  receivedAt?: Date;
 
   @Prop({ required: true, enum: LiveLocationStatus, index: true })
   status: LiveLocationStatus;

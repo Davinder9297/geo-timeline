@@ -12,6 +12,7 @@ interface ProcessedPoint {
   clientPointId: string;
   deviceId: string;
   sequenceNo: number;
+  sessionId: string;
   capturedAt: Date;
   latitude: number;
   longitude: number;
@@ -159,6 +160,7 @@ export class TimelineCalculatorService {
         clientPointId: point.clientPointId,
         deviceId: point.deviceId,
         sequenceNo: point.sequenceNo,
+        sessionId: point.sessionId,
         capturedAt: point.capturedAt,
         latitude: lat,
         longitude: lon,
@@ -230,6 +232,7 @@ export class TimelineCalculatorService {
   private calculateDistances(
     points: ProcessedPoint[],
     impossibleJumpSegments: Set<string>,
+    jitterFilterMeters: number,
   ): {
     rawDistanceMeters: number;
     processedDistanceMeters: number;
@@ -248,10 +251,20 @@ export class TimelineCalculatorService {
       );
       rawDistance += distance;
 
+      // Accuracy-aware jitter filter: ignore movement that doesn't exceed
+      // the combined GPS uncertainty of the two fixes, otherwise normal
+      // jitter while stationary gets counted as real distance.
+      const effectiveThreshold = Math.max(
+        jitterFilterMeters,
+        prev.accuracyM,
+        curr.accuracyM,
+      );
+
       if (
         prev.quality === PointQuality.GOOD &&
         curr.quality === PointQuality.GOOD &&
-        !impossibleJumpSegments.has(`${i - 1}-${i}`)
+        !impossibleJumpSegments.has(`${i - 1}-${i}`) &&
+        distance >= effectiveThreshold
       ) {
         processedDistance += distance;
       }
@@ -553,7 +566,7 @@ export class TimelineCalculatorService {
   async calculateAndUpsertSummary(attendanceId: string): Promise<void> {
     const config = this.configService.get('geoTracking', {
       poorAccuracyThresholdMeters: 50,
-      maxSpeedMps: 70,
+      maxSpeedMps: 350,
       stopRadiusMeters: 50,
       stopDurationSeconds: 300,
       gapDurationSeconds: 300,
@@ -587,7 +600,11 @@ export class TimelineCalculatorService {
 
     // Step 7: Calculate distances
     const { rawDistanceMeters, processedDistanceMeters } =
-      this.calculateDistances(processedPoints, impossibleJumpSegments);
+      this.calculateDistances(
+        processedPoints,
+        impossibleJumpSegments,
+        config.distanceFilterMeters ?? 5,
+      );
 
     // Step 8: Detect stops
     const stops = this.detectStops(
@@ -645,6 +662,12 @@ export class TimelineCalculatorService {
             gpsQualityScore: totals.gpsQualityScore,
             encodedRawPolyline,
             encodedProcessedPolyline,
+            processedPoints: smoothedGoodPoints.map((p) => ({
+              latitude: p.latitude,
+              longitude: p.longitude,
+              capturedAt: p.capturedAt,
+              sessionId: p.sessionId,
+            })),
             timelineEvents,
             anomalies,
             lastComputedAt: new Date(),

@@ -152,6 +152,8 @@ export const Map = () => {
     markersRef.current = [];
 
     employees.forEach((emp) => {
+      if (!emp.lastLocation) return; // checked in but no GPS fix yet
+
       const markerElement = document.createElement("div");
       markerElement.style.width = "20px";
       markerElement.style.height = "20px";
@@ -182,14 +184,15 @@ export const Map = () => {
     if (employees.length > 0 && !selectedEmployee) {
       const googleObj = (window as any).google;
       const bounds = new googleObj.maps.LatLngBounds();
-      employees.forEach((emp) =>
+      employees.forEach((emp) => {
+        if (!emp.lastLocation) return;
         bounds.extend(
           new googleObj.maps.LatLng(
             emp.lastLocation.latitude,
             emp.lastLocation.longitude
           )
-        )
-      );
+        );
+      });
       mapInstanceRef.current?.fitBounds(bounds);
     }
   }, [employees, selectedEmployee, mapsLoaded]);
@@ -232,11 +235,27 @@ export const Map = () => {
     const bounds = new googleObj.maps.LatLngBounds();
     let firstPathPoint: { lat: number; lng: number } | null = null;
 
+    // Prefer the de-noised, per-session points (quality-filtered, jitter-
+    // filtered, Douglas-Peucker simplified — same data backing
+    // encodedProcessedPolyline) for the drawn route. Raw points still carry
+    // every bit of GPS noise and zigzag visibly even when driving in a
+    // straight line. Fall back to raw points only when no summary has been
+    // computed yet for this day.
+    const processedPoints = timeline.processedRoute?.points;
+    const useProcessed = !!processedPoints && processedPoints.length > 0;
+
     if (rawPoints.length > 0 && sessionOrder.length > 0) {
       // Draw one polyline group per session, each in its own color.
       sessionOrder.forEach((sessionId, idx) => {
+        const path = useProcessed
+          ? processedPoints!
+              .filter((p) => p.sessionId === sessionId)
+              .sort((a, b) => new Date(a.capturedAt).getTime() - new Date(b.capturedAt).getTime())
+              .map((p) => ({ lat: p.latitude, lng: p.longitude }))
+          : rawPoints
+              .filter((p: RawLocationPoint) => p.sessionId === sessionId)
+              .map((p: RawLocationPoint) => ({ lat: p.latitude, lng: p.longitude }));
         const sessionPoints = rawPoints.filter((p: RawLocationPoint) => p.sessionId === sessionId);
-        const path = sessionPoints.map((p: RawLocationPoint) => ({ lat: p.latitude, lng: p.longitude }));
         if (path.length === 0) return;
         if (!firstPathPoint) firstPathPoint = path[0];
 

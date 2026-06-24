@@ -18,7 +18,7 @@ export interface LiveEmployee {
   name: string;
   status: LiveLocationStatus;
   isStale: boolean;
-  lastLocation: { latitude: number; longitude: number };
+  lastLocation: { latitude: number; longitude: number } | null;
   lastUpdatedAt: string;
 }
 
@@ -92,6 +92,7 @@ export interface TimelineResponse {
   processedRoute?: {
     encodedProcessedPolyline: string;
     encodedRawPolyline: string;
+    points: { latitude: number; longitude: number; capturedAt: string; sessionId: string }[];
   };
   totals?: {
     rawDistanceMeters: number;

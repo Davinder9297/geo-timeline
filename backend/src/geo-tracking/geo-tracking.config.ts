@@ -6,8 +6,11 @@ export default registerAs('geoTracking', () => ({
     process.env.LOCATION_INTERVAL_SECONDS || '30',
     10,
   ),
+  // Floor for the accuracy-aware jitter filter, not a flat route-thinning
+  // threshold — real GPS accuracy (used alongside this) does the heavy
+  // lifting so slow movement (walking) isn't mistaken for noise.
   distanceFilterMeters: parseInt(
-    process.env.DISTANCE_FILTER_METERS || '25',
+    process.env.DISTANCE_FILTER_METERS || '5',
     10,
   ),
   batchSize: parseInt(process.env.BATCH_SIZE || '20', 10),
@@ -20,7 +23,12 @@ export default registerAs('geoTracking', () => ({
     process.env.STALE_THRESHOLD_MINUTES || '5',
     10,
   ),
-  maxSpeedMps: parseInt(process.env.MAX_SPEED_MPS || '70', 10),
+  // 70 m/s (~252 km/h) was too low to ever be true commercial-flight speed
+  // (~250 m/s cruise) or fast trains (~90 m/s) — every GPS pair during those
+  // would get flagged IMPOSSIBLE_JUMP and dropped from the route/distance.
+  // 350 m/s (~1260 km/h) comfortably covers walking/driving/train/flight
+  // while still catching genuine GPS teleport glitches.
+  maxSpeedMps: parseInt(process.env.MAX_SPEED_MPS || '350', 10),
   stopRadiusMeters: parseInt(process.env.STOP_RADIUS_METERS || '50', 10),
   stopDurationSeconds: parseInt(process.env.STOP_DURATION_SECONDS || '300', 10),
   gapDurationSeconds: parseInt(process.env.GAP_DURATION_SECONDS || '300', 10),

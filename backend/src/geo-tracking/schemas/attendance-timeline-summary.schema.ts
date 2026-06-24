@@ -1,6 +1,20 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
 
+class ProcessedPoint {
+  @Prop({ required: true })
+  latitude: number;
+
+  @Prop({ required: true })
+  longitude: number;
+
+  @Prop({ required: true })
+  capturedAt: Date;
+
+  @Prop({ required: true })
+  sessionId: string;
+}
+
 class Anomaly {
   @Prop({ required: true })
   type: string;
@@ -58,6 +72,13 @@ export class AttendanceTimelineSummary extends Document {
 
   @Prop({ required: true })
   encodedProcessedPolyline: string;
+
+  // De-noised points backing encodedProcessedPolyline (quality-filtered +
+  // jitter-filtered + Douglas-Peucker simplified), kept per-session and
+  // timestamped so the dashboard can render a clean, per-session-colored
+  // route instead of falling back to raw/noisy points.
+  @Prop({ type: [Object], default: [] })
+  processedPoints: ProcessedPoint[];
 
   @Prop({ type: [Object], default: [] })
   timelineEvents: any[];

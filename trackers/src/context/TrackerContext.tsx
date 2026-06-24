@@ -89,7 +89,7 @@ export const TrackerProvider = ({
   // Declare refs FIRST
   const watcherRef = useRef<number | null>(null);
   const sequenceRef = useRef<number>(0);
-  const lastLocationRef = useRef<{ lat: number; lon: number } | null>(null);
+  const lastLocationRef = useRef<{ lat: number; lon: number; accuracyM: number } | null>(null);
   const lastQueuedPointRef = useRef<LocationPointDto | null>(null);
   const batchIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const retryBackoffRef = useRef<number>(1000);
@@ -159,6 +159,7 @@ export const TrackerProvider = ({
       return data.data;
     },
     enabled: !!user,
+    refetchInterval: 20000,
   });
 
   const statsQuery = useQuery({
@@ -176,6 +177,7 @@ export const TrackerProvider = ({
       return data.data;
     },
     enabled: !!user,
+    refetchInterval: 20000,
   });
 
   // Helper to extract friendly message from various backend error shapes
@@ -451,8 +453,20 @@ export const TrackerProvider = ({
         longitude,
       );
 
-      // Hard distance filter: reject if not enough movement
-      if (distance < CONFIG.DISTANCE_FILTER_METERS) {
+      // Accuracy-aware distance filter: a move is only "real" if it exceeds
+      // both the base filter and the combined GPS uncertainty of the two
+      // fixes being compared. Otherwise normal jitter while stationary
+      // (multipath/urban canyon error) gets counted as movement. Accuracy
+      // is capped before use so a single degraded fix (tunnel, indoors)
+      // can't permanently inflate the threshold and suppress later good
+      // fixes once signal recovers.
+      const ACCURACY_CAP_METERS = 50;
+      const effectiveThreshold = Math.max(
+        CONFIG.DISTANCE_FILTER_METERS,
+        Math.min(accuracy, ACCURACY_CAP_METERS),
+        Math.min(lastLocationRef.current.accuracyM, ACCURACY_CAP_METERS),
+      );
+      if (distance < effectiveThreshold) {
         return false;
       }
 
@@ -479,14 +493,15 @@ export const TrackerProvider = ({
         }
       }
 
-      // Reject accuracy spikes
-      if (accuracy > 100 && lastAccuracy !== null && accuracy > lastAccuracy * 2) {
-        return false;
-      }
+      // Note: we intentionally don't reject low-accuracy fixes here anymore.
+      // Dropping a point client-side loses it forever; the backend's
+      // quality engine (poorAccuracyThresholdMeters) already classifies
+      // poor fixes and excludes them from the processed route without
+      // discarding the raw data.
 
       return true;
     },
-    [lastAccuracy],
+    [],
   );
 
 const addLocationToQueue = useCallback(async (
@@ -517,7 +532,7 @@ const addLocationToQueue = useCallback(async (
     // Claim this location synchronously, before any async work, to prevent
     // concurrent calls (getCurrentPosition + watchPosition firing close
     // together) from both treating this as the "first" point.
-    lastLocationRef.current = { lat: latitude, lon: longitude };
+    lastLocationRef.current = { lat: latitude, lon: longitude, accuracyM: accuracy };
 
     const batteryPercent = await getBatteryPercent();
     const appState = getAppState();
@@ -581,7 +596,7 @@ const addLocationToQueue = useCallback(async (
       {
         enableHighAccuracy: true,
         timeout: 60000, // Increase timeout to 60 seconds
-        maximumAge: 30000,
+        maximumAge: 5000,
       }
     );
   }, [addLocationToQueue]);
@@ -712,7 +727,7 @@ const handlePosition = useCallback(
       handlePositionError,
       {
         enableHighAccuracy: true,
-        maximumAge: 30000,
+        maximumAge: 5000,
         timeout: 60000, // Increase timeout to 60 seconds
       }
     );
@@ -762,7 +777,7 @@ const handlePosition = useCallback(
       const maxSeq = Math.max(...savedQueue.map((p) => p.sequenceNo));
       sequenceRef.current = maxSeq + 1;
       const lastPoint = savedQueue[savedQueue.length - 1];
-      lastLocationRef.current = { lat: lastPoint.latitude, lon: lastPoint.longitude };
+      lastLocationRef.current = { lat: lastPoint.latitude, lon: lastPoint.longitude, accuracyM: lastPoint.accuracyM };
       lastQueuedPointRef.current = lastPoint;
       setLastAccuracy(lastPoint.accuracyM);
     }
@@ -798,7 +813,7 @@ const handlePosition = useCallback(
         handlePositionError,
         {
           enableHighAccuracy: true,
-          maximumAge: 30000,
+          maximumAge: 5000,
           timeout: 60000, // Increase timeout to 60 seconds
         }
       );

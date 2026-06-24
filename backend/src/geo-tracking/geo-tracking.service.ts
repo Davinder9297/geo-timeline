@@ -86,6 +86,7 @@ export class GeoTrackingService {
       existing.trackingStoppedAt = undefined;
 
       await existing.save();
+      await this.markCheckedInLive(existing._id.toString(), user);
       return existing;
     }
 
@@ -106,7 +107,52 @@ export class GeoTrackingService {
     });
 
     await attendance.save();
+    await this.markCheckedInLive(attendance._id.toString(), user);
     return attendance;
+  }
+
+  /**
+   * Immediately surfaces a fresh check-in on the admin dashboard, without
+   * waiting for the employee's first GPS fix to arrive (which can lag
+   * check-in by tens of seconds, or longer with a cold GPS lock).
+   */
+  private async markCheckedInLive(
+    attendanceId: string,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    const now = new Date();
+    const updatedLiveLocation = await this.employeeLiveLocationModel
+      .findOneAndUpdate(
+        { companyId: user.companyId, employeeId: user.employeeId },
+        {
+          $set: {
+            companyId: user.companyId,
+            employeeId: user.employeeId,
+            attendanceId,
+            status: LiveLocationStatus.WORKING,
+            isStale: false,
+            lastUpdatedAt: now,
+          },
+        },
+        { upsert: true, returnDocument: 'after' },
+      );
+
+    this.locationBroadcastService.broadcastEmployeeStatusUpdate(
+      user.companyId,
+      user.employeeId,
+      {
+        employeeId: user.employeeId,
+        isStale: false,
+        status: LiveLocationStatus.WORKING,
+        lastUpdatedAt: now,
+        location: updatedLiveLocation?.location
+          ? {
+              latitude: updatedLiveLocation.location.coordinates[1],
+              longitude: updatedLiveLocation.location.coordinates[0],
+            }
+          : undefined,
+      },
+    );
   }
 
   async checkOutAttendance(
@@ -391,6 +437,7 @@ export class GeoTrackingService {
 
             if (
               !existingLiveLocation ||
+              !existingLiveLocation.capturedAt ||
               latestPoint.capturedAt > existingLiveLocation.capturedAt
             ) {
               const status =
@@ -493,6 +540,10 @@ export class GeoTrackingService {
       }
     }
 
+    if (pointsToInsert.length > 0) {
+      await this.timelineRebuildQueue.enqueueRebuild(attendanceId);
+    }
+
     return {
       accepted,
       duplicates,
@@ -550,7 +601,7 @@ export class GeoTrackingService {
       name: string;
       status: LiveLocationStatus;
       isStale: boolean;
-      lastLocation: { latitude: number; longitude: number };
+      lastLocation: { latitude: number; longitude: number } | null;
       lastUpdatedAt: Date;
     }[]
   > {
@@ -594,10 +645,12 @@ export class GeoTrackingService {
         name: employeeMap.get(ll.employeeId) || 'Unknown',
         status: finalStatus,
         isStale,
-        lastLocation: {
-          latitude: ll.location.coordinates[1],
-          longitude: ll.location.coordinates[0],
-        },
+        lastLocation: ll.location
+          ? {
+              latitude: ll.location.coordinates[1],
+              longitude: ll.location.coordinates[0],
+            }
+          : null,
         lastUpdatedAt: ll.lastUpdatedAt,
       };
     });
@@ -706,6 +759,7 @@ export class GeoTrackingService {
       processedRoute = {
         encodedProcessedPolyline: summary.encodedProcessedPolyline,
         encodedRawPolyline: summary.encodedRawPolyline,
+        points: summary.processedPoints || [],
       };
       totals = {
         rawDistanceMeters: summary.rawDistanceMeters,
