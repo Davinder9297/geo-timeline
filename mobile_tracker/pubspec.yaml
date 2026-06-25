@@ -1,0 +1,45 @@
+name: mobile_tracker
+description: Employee location tracking mobile app (Flutter) - feature parity with the web tracker.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+
+  # Networking
+  http: ^1.2.1
+
+  # State management - ChangeNotifier + Provider, deliberately simple
+  provider: ^6.1.2
+
+  # Local persistence (mirrors localStorage on the web app)
+  shared_preferences: ^2.2.3
+
+  # GPS
+  geolocator: ^13.0.1
+
+  # Maps + route rendering
+  google_maps_flutter: ^2.9.0
+
+  # Point/device id generation (mirrors uuid usage on the web app)
+  uuid: ^4.4.0
+
+  # Device signal context attached to each location point, mirrors the
+  # batteryPercent / networkType fields the backend already stores
+  battery_plus: ^6.0.2
+  connectivity_plus: ^6.0.5
+
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
