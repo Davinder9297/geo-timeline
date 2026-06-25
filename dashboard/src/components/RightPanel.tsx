@@ -14,6 +14,7 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
     setSelectedDate,
     selectedEmployee,
     rebuildTimeline,
+    isRebuildingTimeline,
     isPlaying,
     setIsPlaying,
     playbackSpeed,
@@ -150,7 +151,19 @@ export const RightPanel = ({ className = "" }: { className?: string }) => {
         {!loadingTimeline && !errorTimeline && timeline && timeline.summaryAvailable && (
           <>
             <div>
-              <h3 className="text-sm font-semibold text-gray-800 dark:text-slate-200 mb-3">Summary</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-gray-800 dark:text-slate-200">Summary</h3>
+                {timeline.attendance && (
+                  <button
+                    onClick={() => rebuildTimeline(timeline.attendance._id)}
+                    disabled={isRebuildingTimeline}
+                    title="Force-recompute this day's timeline (route smoothing, distances, anomalies) from the raw GPS points"
+                    className="text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {isRebuildingTimeline ? "Rebuilding…" : "Rebuild"}
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-gray-50 dark:bg-slate-800/50 p-3 rounded-md border border-gray-100 dark:border-slate-800/30">
                   <div className="text-xs text-gray-500 dark:text-slate-400 mb-1">Distance</div>

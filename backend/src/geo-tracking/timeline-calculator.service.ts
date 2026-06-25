@@ -638,7 +638,23 @@ export class TimelineCalculatorService {
     const goodPointsOnly = processedPoints.filter(
       (p) => p.quality === PointQuality.GOOD,
     );
-    const smoothedGoodPoints = this.simplifyPoints(goodPointsOnly, 8);
+    // Simplify each session independently rather than across the whole day.
+    // Running Douglas-Peucker over multiple sessions combined draws a
+    // straight reference line from the first point of the first session to
+    // the last point of the last session — meaningless once sessions are
+    // at different locations (e.g. separated by a break) — and makes the
+    // result unstable: new points appended to whichever session is
+    // currently active can reshuffle which points get kept for completely
+    // separate, already-finished sessions on every recompute.
+    const goodPointsBySession = new Map<string, ProcessedPoint[]>();
+    for (const point of goodPointsOnly) {
+      const sessionPoints = goodPointsBySession.get(point.sessionId) ?? [];
+      sessionPoints.push(point);
+      goodPointsBySession.set(point.sessionId, sessionPoints);
+    }
+    const smoothedGoodPoints = Array.from(goodPointsBySession.values())
+      .flatMap((sessionPoints) => this.simplifyPoints(sessionPoints, 8))
+      .sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
     const { encodedRawPolyline, encodedProcessedPolyline } =
       this.buildEncodedPolylines(processedPoints, smoothedGoodPoints);
 

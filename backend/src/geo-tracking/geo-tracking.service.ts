@@ -277,6 +277,50 @@ export class GeoTrackingService {
     };
   }
 
+  /**
+   * Resolves which session a point belongs to by matching its capturedAt
+   * against each session's [checkInAt, checkOutAt) window, instead of
+   * blanket-assigning every point in a batch to "whichever session is
+   * latest right now". The latter merges sessions on the map whenever a
+   * new check-in happens before the previous session's queued/buffered
+   * points have finished uploading (network lag, background throttling,
+   * the client's own batch interval) — those late points would otherwise
+   * get stamped with the new session's id even though they were captured
+   * during the previous one.
+   */
+  private resolveSessionIdForCapturedAt(
+    sessions: { sessionId: string; checkInAt: Date; checkOutAt?: Date }[],
+    capturedAt: Date,
+  ): string {
+    if (sessions.length === 0) return '';
+
+    const exactMatch = sessions.find(
+      (s) =>
+        capturedAt >= s.checkInAt &&
+        (!s.checkOutAt || capturedAt <= s.checkOutAt),
+    );
+    if (exactMatch) return exactMatch.sessionId;
+
+    // No exact window match (e.g. a point captured a moment before
+    // check-in due to clock skew, or after the final checkout because it
+    // was stuck in an offline queue). Fall back to the most recent session
+    // that had already started by the time this point was captured.
+    let best: { sessionId: string; checkInAt: Date } | null = null;
+    for (const s of sessions) {
+      if (
+        s.checkInAt <= capturedAt &&
+        (!best || s.checkInAt > best.checkInAt)
+      ) {
+        best = s;
+      }
+    }
+    if (best) return best.sessionId;
+
+    // Point captured before any session even started — attribute to the
+    // earliest session rather than dropping it.
+    return sessions[0].sessionId;
+  }
+
   async batchInsertLocationPoints(
     attendanceId: string,
     deviceId: string,
@@ -376,8 +420,10 @@ export class GeoTrackingService {
           ? PointQuality.POOR
           : PointQuality.GOOD;
 
-      const latestSession = attendance.sessions[attendance.sessions.length - 1];
-      const sessionId = latestSession ? latestSession.sessionId : '';
+      const sessionId = this.resolveSessionIdForCapturedAt(
+        attendance.sessions,
+        capturedAt,
+      );
 
       pointsToInsert.push({
         companyId: user.companyId,

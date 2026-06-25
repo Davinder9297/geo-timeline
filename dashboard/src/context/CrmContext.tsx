@@ -31,6 +31,7 @@ const CrmContext = createContext<{
   selectedDate: string;
   setSelectedDate: (date: string) => void;
   rebuildTimeline: (attendanceId: string) => Promise<void>;
+  isRebuildingTimeline: boolean;
   isPlaying: boolean;
   setIsPlaying: (isPlaying: boolean) => void;
   playbackSpeed: number;
@@ -275,6 +276,7 @@ export const CrmProvider = ({ children }: { children: React.ReactNode }) => {
         selectedDate,
         setSelectedDate,
         rebuildTimeline,
+        isRebuildingTimeline: rebuildTimelineMutation.isPending,
         isPlaying,
         setIsPlaying,
         playbackSpeed,

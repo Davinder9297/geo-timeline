@@ -234,6 +234,7 @@ export const Map = () => {
     const googleObj = (window as any).google;
     const bounds = new googleObj.maps.LatLngBounds();
     let firstPathPoint: { lat: number; lng: number } | null = null;
+    let selectedSessionStart: { lat: number; lng: number } | null = null;
 
     // Prefer the de-noised, per-session points (quality-filtered, jitter-
     // filtered, Douglas-Peucker simplified — same data backing
@@ -258,6 +259,9 @@ export const Map = () => {
         const sessionPoints = rawPoints.filter((p: RawLocationPoint) => p.sessionId === sessionId);
         if (path.length === 0) return;
         if (!firstPathPoint) firstPathPoint = path[0];
+        if (selectedSessionId && sessionId === selectedSessionId) {
+          selectedSessionStart = path[0];
+        }
 
         const segments = buildPathSegments(path, 250);
         const isDimmed = !!selectedSessionId && selectedSessionId !== sessionId;
@@ -326,7 +330,13 @@ export const Map = () => {
       }
     }
 
-    if (!bounds.isEmpty()) {
+    if (selectedSessionStart) {
+      // A specific session is selected — center on where it started rather
+      // than fitting the whole day's bounds, so the admin lands exactly
+      // where that session began.
+      mapInstanceRef.current?.panTo(selectedSessionStart);
+      mapInstanceRef.current?.setZoom(16);
+    } else if (!bounds.isEmpty()) {
       mapInstanceRef.current?.fitBounds(bounds);
     }
 
