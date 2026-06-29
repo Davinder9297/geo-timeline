@@ -33,3 +33,6 @@ lerna-debug.log*
 
 # typescript
 *.tsbuildinfo
+
+# database backups (can contain employee PII/location data — never commit)
+/backups

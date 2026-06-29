@@ -19,7 +19,8 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "seed": "ts-node src/seed.ts",
-    "clear-db": "ts-node src/clear-db.ts"
+    "clear-db": "ts-node src/clear-db.ts",
+    "db:backup": "ts-node src/db-backup.ts"
   },
   "dependencies": {
     "@mapbox/polyline": "^1.2.1",

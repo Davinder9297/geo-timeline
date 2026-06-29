@@ -36,53 +36,26 @@ const getMarkerColor = (status: LiveLocationStatus, isStale: boolean) => {
   }
 };
 
-const buildPathSegments = (
-  path: { lat: number; lng: number }[],
-  maxDistanceMeters = 250,
-): { lat: number; lng: number }[][] => {
-  const segments: { lat: number; lng: number }[][] = [];
-  let currentSegment: { lat: number; lng: number }[] = [];
+interface PathPoint {
+  lat: number;
+  lng: number;
+  capturedAt?: string;
+}
 
-  const googleObj = (window as any).google;
-  const distanceBetween = (
-    a: { lat: number; lng: number },
-    b: { lat: number; lng: number },
-  ) => {
-    if (!googleObj?.maps?.geometry?.spherical?.computeDistanceBetween) {
-      const latDiff = a.lat - b.lat;
-      const lngDiff = a.lng - b.lng;
-      return Math.sqrt(latDiff * latDiff + lngDiff * lngDiff) * 111_000;
-    }
-    return googleObj.maps.geometry.spherical.computeDistanceBetween(
-      new googleObj.maps.LatLng(a.lat, a.lng),
-      new googleObj.maps.LatLng(b.lat, b.lng),
-    );
-  };
-
-  for (let i = 0; i < path.length; i += 1) {
-    const point = path[i];
-    if (currentSegment.length === 0) {
-      currentSegment.push(point);
-      continue;
-    }
-
-    const prev = currentSegment[currentSegment.length - 1];
-    const distance = distanceBetween(prev, point);
-    if (distance > maxDistanceMeters) {
-      if (currentSegment.length > 1) {
-        segments.push(currentSegment);
-      }
-      currentSegment = [point];
-    } else {
-      currentSegment.push(point);
-    }
-  }
-
-  if (currentSegment.length > 1) {
-    segments.push(currentSegment);
-  }
-
-  return segments;
+/**
+ * Returns the whole path as one continuous segment — no gap-splitting.
+ * Both distance- and time-based heuristics for detecting "a real GPS
+ * dropout" were tried here and both broke on legitimate data: once the
+ * backend's Douglas-Peucker simplification has run, the surviving points
+ * on a long, real, continuously-walked stretch can legitimately be far
+ * apart in both distance and time (a long straight road, or simply walking
+ * slowly) — indistinguishable from an actual gap using only the simplified
+ * point set. The mobile app's map screen never had this problem because it
+ * draws everything it's given as one continuous line per session, with no
+ * gap inference at all — this mirrors that, instead of guessing.
+ */
+const buildPathSegments = (path: PathPoint[]): PathPoint[][] => {
+  return path.length > 1 ? [path] : [];
 };
 
 export const Map = () => {
@@ -252,10 +225,10 @@ export const Map = () => {
           ? processedPoints!
               .filter((p) => p.sessionId === sessionId)
               .sort((a, b) => new Date(a.capturedAt).getTime() - new Date(b.capturedAt).getTime())
-              .map((p) => ({ lat: p.latitude, lng: p.longitude }))
+              .map((p) => ({ lat: p.latitude, lng: p.longitude, capturedAt: p.capturedAt }))
           : rawPoints
               .filter((p: RawLocationPoint) => p.sessionId === sessionId)
-              .map((p: RawLocationPoint) => ({ lat: p.latitude, lng: p.longitude }));
+              .map((p: RawLocationPoint) => ({ lat: p.latitude, lng: p.longitude, capturedAt: p.capturedAt }));
         const sessionPoints = rawPoints.filter((p: RawLocationPoint) => p.sessionId === sessionId);
         if (path.length === 0) return;
         if (!firstPathPoint) firstPathPoint = path[0];
@@ -263,7 +236,7 @@ export const Map = () => {
           selectedSessionStart = path[0];
         }
 
-        const segments = buildPathSegments(path, 250);
+        const segments = buildPathSegments(path);
         const isDimmed = !!selectedSessionId && selectedSessionId !== sessionId;
         const color = sessionColor(sessionId);
 
@@ -314,7 +287,7 @@ export const Map = () => {
       if (polyline) {
         const path = decodePolyline(polyline).map(([lat, lng]) => ({ lat, lng }));
         firstPathPoint = path[0] || null;
-        const segments = buildPathSegments(path, 250);
+        const segments = buildPathSegments(path);
         segments.forEach((segment) => {
           const segmentPolyline = new googleObj.maps.Polyline({
             path: segment,

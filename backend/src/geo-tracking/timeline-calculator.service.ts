@@ -227,56 +227,145 @@ export class TimelineCalculatorService {
   }
 
   /**
-   * Step 7: Calculate raw and processed distances
+   * Step 7: Calculate raw distance — intentionally unfiltered, every
+   * consecutive-pair distance summed regardless of quality, as a baseline
+   * to compare the filtered processedDistanceMeters against.
    */
-  private calculateDistances(
-    points: ProcessedPoint[],
-    impossibleJumpSegments: Set<string>,
-    jitterFilterMeters: number,
-  ): {
-    rawDistanceMeters: number;
-    processedDistanceMeters: number;
-  } {
+  private calculateRawDistance(points: ProcessedPoint[]): number {
     let rawDistance = 0;
-    let processedDistance = 0;
+    for (let i = 1; i < points.length; i++) {
+      rawDistance += this.haversineDistance(
+        points[i - 1].latitude,
+        points[i - 1].longitude,
+        points[i].latitude,
+        points[i].longitude,
+      );
+    }
+    return rawDistance;
+  }
+
+  /**
+   * Single-fix anchor filter: a point only moves the anchor (and counts as
+   * distance) if it clears the accuracy-based jitter radius on its own —
+   * no second corroborating fix required. A two-fix "confirmation"
+   * requirement (an earlier version of this) is fragile: it implicitly
+   * assumes the upload is dense enough that real movement always has a
+   * follow-up fix nearby, and that assumption breaks under perfectly
+   * normal conditions — slower movement, longer batch intervals, a
+   * client build that uploads less densely than expected, network
+   * retries reordering arrival — any of which makes confirmation
+   * misfire and wipe real movement. This is intentionally the more
+   * permissive half of the filter; outlier removal is handled
+   * separately by dropSpikeOutliers below, which doesn't depend on
+   * spacing assumptions at all.
+   */
+  private computeConfirmedMovement(
+    points: ProcessedPoint[],
+    jitterFilterMeters: number,
+  ): { confirmedPoints: ProcessedPoint[]; distanceMeters: number } {
+    if (points.length === 0) return { confirmedPoints: [], distanceMeters: 0 };
+
+    const confirmedPoints: ProcessedPoint[] = [points[0]];
+    let anchor = points[0];
+    let distanceMeters = 0;
 
     for (let i = 1; i < points.length; i++) {
+      const curr = points[i];
+      const jitterRadius = Math.max(
+        jitterFilterMeters,
+        anchor.accuracyM,
+        curr.accuracyM,
+      );
+      const distanceFromAnchor = this.haversineDistance(
+        anchor.latitude,
+        anchor.longitude,
+        curr.latitude,
+        curr.longitude,
+      );
+
+      if (distanceFromAnchor < jitterRadius) continue;
+
+      distanceMeters += distanceFromAnchor;
+      confirmedPoints.push(curr);
+      anchor = curr;
+    }
+
+    return { confirmedPoints, distanceMeters };
+  }
+
+  /**
+   * Spike-outlier cleanup, run after the anchor filter above. Catches the
+   * one case the single-fix filter alone can't: a single bad fix that
+   * clears the jitter radius (so the anchor filter accepts it) but is
+   * actually just a GPS bounce. Looks for the specific shape that leaves
+   * behind — point N is far from both neighbors, while those neighbors
+   * are close to *each other* — i.e. the path went out to N and doubled
+   * back, which a real route only does at a genuine reversal. A real
+   * corner doesn't have that signature, since a real turn's neighbors
+   * stay spread apart too. This check needs no assumption about point
+   * spacing, so it's safe regardless of upload density.
+   */
+  private dropSpikeOutliers(
+    points: ProcessedPoint[],
+    jitterFilterMeters: number,
+  ): ProcessedPoint[] {
+    if (points.length < 3) return points;
+
+    const keep = new Array(points.length).fill(true);
+    for (let i = 1; i < points.length - 1; i++) {
       const prev = points[i - 1];
       const curr = points[i];
-      const distance = this.haversineDistance(
+      const next = points[i + 1];
+
+      const threshold = Math.max(
+        jitterFilterMeters,
+        prev.accuracyM,
+        curr.accuracyM,
+        next.accuracyM,
+      );
+
+      const distPrevCurr = this.haversineDistance(
         prev.latitude,
         prev.longitude,
         curr.latitude,
         curr.longitude,
       );
-      rawDistance += distance;
-
-      // Accuracy-aware jitter filter: ignore movement that doesn't exceed
-      // the combined GPS uncertainty of the two fixes, otherwise normal
-      // jitter while stationary gets counted as real distance.
-      const effectiveThreshold = Math.max(
-        jitterFilterMeters,
-        prev.accuracyM,
-        curr.accuracyM,
+      const distCurrNext = this.haversineDistance(
+        curr.latitude,
+        curr.longitude,
+        next.latitude,
+        next.longitude,
+      );
+      const distPrevNext = this.haversineDistance(
+        prev.latitude,
+        prev.longitude,
+        next.latitude,
+        next.longitude,
       );
 
       if (
-        prev.quality === PointQuality.GOOD &&
-        curr.quality === PointQuality.GOOD &&
-        !impossibleJumpSegments.has(`${i - 1}-${i}`) &&
-        distance >= effectiveThreshold
+        distPrevCurr > threshold &&
+        distCurrNext > threshold &&
+        distPrevNext <= threshold
       ) {
-        processedDistance += distance;
+        keep[i] = false;
       }
     }
 
-    // Extension point: snappedDistanceMeters (Google Roads API)
-    // const snappedDistanceMeters = 0; // To be implemented in Phase 6
+    return points.filter((_, index) => keep[index]);
+  }
 
-    return {
-      rawDistanceMeters: rawDistance,
-      processedDistanceMeters: processedDistance,
-    };
+  private sumConsecutiveDistance(points: ProcessedPoint[]): number {
+    let total = 0;
+    for (let i = 1; i < points.length; i++) {
+      total += this.haversineDistance(
+        points[i - 1].latitude,
+        points[i - 1].longitude,
+        points[i].latitude,
+        points[i].longitude,
+      );
+    }
+    return total;
   }
 
   /**
@@ -591,20 +680,12 @@ export class TimelineCalculatorService {
     );
 
     // Step 6: Detect impossible jumps
-    const {
-      points: pointsWithJumpsDetected,
-      impossibleJumpSegments,
-      anomalies: jumpAnomalies,
-    } = this.detectImpossibleJumps(processedPoints, config.maxSpeedMps);
+    const { points: pointsWithJumpsDetected, anomalies: jumpAnomalies } =
+      this.detectImpossibleJumps(processedPoints, config.maxSpeedMps);
     processedPoints = pointsWithJumpsDetected;
 
-    // Step 7: Calculate distances
-    const { rawDistanceMeters, processedDistanceMeters } =
-      this.calculateDistances(
-        processedPoints,
-        impossibleJumpSegments,
-        config.distanceFilterMeters ?? 5,
-      );
+    // Step 7: Calculate raw distance (unfiltered baseline)
+    const rawDistanceMeters = this.calculateRawDistance(processedPoints);
 
     // Step 8: Detect stops
     const stops = this.detectStops(
@@ -652,8 +733,24 @@ export class TimelineCalculatorService {
       sessionPoints.push(point);
       goodPointsBySession.set(point.sessionId, sessionPoints);
     }
+
+    // Confirmed-movement filtering runs before simplification, not after —
+    // Douglas-Peucker preserves whatever point deviates most from a
+    // straight line, so a stray GPS bounce has to be removed before
+    // simplification ever sees it, otherwise simplification "preserves"
+    // it as if it were a real corner.
+    let processedDistanceMeters = 0;
     const smoothedGoodPoints = Array.from(goodPointsBySession.values())
-      .flatMap((sessionPoints) => this.simplifyPoints(sessionPoints, 8))
+      .flatMap((sessionPoints) => {
+        const jitterFilterMeters = config.distanceFilterMeters ?? 5;
+        const { confirmedPoints } = this.computeConfirmedMovement(
+          sessionPoints,
+          jitterFilterMeters,
+        );
+        const despiked = this.dropSpikeOutliers(confirmedPoints, jitterFilterMeters);
+        processedDistanceMeters += this.sumConsecutiveDistance(despiked);
+        return this.simplifyPoints(despiked, 8);
+      })
       .sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
     const { encodedRawPolyline, encodedProcessedPolyline } =
       this.buildEncodedPolylines(processedPoints, smoothedGoodPoints);

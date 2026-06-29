@@ -103,7 +103,6 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   bool _isUploading = false;
   int _sequence = 0;
   _AnchorFix? _anchorFix;
-  _AnchorFix? _pendingFix;
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
 
   TrackerProvider() {
@@ -380,7 +379,6 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     if (queue.isEmpty) {
       _anchorFix = null;
-      _pendingFix = null;
     }
 
     await _positionSub?.cancel();
@@ -433,7 +431,6 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     _batchTimer = null;
     await _flushQueue();
     _anchorFix = null;
-    _pendingFix = null;
     notifyListeners();
   }
 
@@ -453,6 +450,12 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     currentLocation = LatLng(lat, lon);
     notifyListeners();
 
+    // Single-fix anchor filter (see _confirmMovement) — skips uploading
+    // fixes that are just jitter around a point you're not actually moving
+    // from, cutting bandwidth. Safe to gate uploads with this now, unlike
+    // the old two-fix-confirmation version: no fix is ever held back
+    // waiting for a second one to corroborate it, so real movement always
+    // gets through immediately rather than risking starving the backend.
     if (!_confirmMovement(lat, lon, accuracy)) return;
 
     final batteryPercent = await _getBatteryPercent();
@@ -483,19 +486,18 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  /// Stationary-anchor filter, replacing a plain point-to-point jitter
-  /// check. The flaw with comparing only consecutive fixes: a single GPS
-  /// bounce (multipath, momentary satellite-geometry shift) that happens to
-  /// exceed the accuracy-based threshold gets accepted as "movement"
-  /// outright, and over hours of sitting still, even a low per-fix chance
-  /// of that compounds into a creeping distance and stray off-position
-  /// points. Instead, this keeps a fixed "anchor" while stationary — a fix
-  /// outside the jitter radius only confirms real movement once a second
-  /// consecutive fix lands near the same new spot (not back near the
-  /// anchor, and not off in some other direction), which a one-off bounce
-  /// won't do. Only on confirmation does the anchor move and distance get
-  /// added; a single deviating fix is held as _pendingFix and discarded if
-  /// the next fix doesn't corroborate it.
+  /// Single-fix anchor filter — matches the backend's computeConfirmedMovement
+  /// exactly (same threshold logic), deliberately not requiring a second
+  /// fix to "confirm" movement before accepting it. An earlier two-fix
+  /// confirmation version of this gated uploads too aggressively: real
+  /// movement spaced further apart than the confirm radius got rejected
+  /// while waiting for a corroborating fix that might never come, starving
+  /// the backend of density it needed. This version has no such wait — any
+  /// single fix that clears the jitter radius is accepted immediately, so
+  /// real movement is never held back. That makes it safe to use this as
+  /// the upload gate again (skipping fixes that don't represent real
+  /// movement, cutting bandwidth) without the fragility of the old
+  /// confirmation-based approach.
   bool _confirmMovement(double lat, double lon, double accuracy) {
     final anchor = _anchorFix;
     if (anchor == null) {
@@ -519,26 +521,13 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
         'totalDistance=${totalDistance.toStringAsFixed(1)}m';
 
     if (distanceFromAnchor < jitterRadius) {
-      // Back within jitter range of the anchor — settled again, drop any
-      // pending candidate from a previous bounce.
-      _pendingFix = null;
       GpsDebugLog.log('JITTER(within radius) $logPrefix');
       return false;
     }
 
-    final pending = _pendingFix;
-    const confirmRadius = 8.0; // how close two fixes must be to agree on the same new spot
-    if (pending == null || haversineDistanceMeters(pending.lat, pending.lon, lat, lon) > confirmRadius) {
-      _pendingFix = _AnchorFix(lat, lon, accuracy);
-      GpsDebugLog.log('PENDING(new candidate, awaiting confirmation) $logPrefix');
-      return false;
-    }
-
-    final added = haversineDistanceMeters(anchor.lat, anchor.lon, lat, lon);
-    totalDistance += added;
+    totalDistance += distanceFromAnchor;
     _anchorFix = _AnchorFix(lat, lon, accuracy);
-    _pendingFix = null;
-    GpsDebugLog.log('CONFIRMED(+${added.toStringAsFixed(1)}m) $logPrefix');
+    GpsDebugLog.log('MOVED(+${distanceFromAnchor.toStringAsFixed(1)}m) $logPrefix');
     return true;
   }
 
