@@ -55,6 +55,22 @@ List<List<double>> decodePolyline(String encoded) {
   return points;
 }
 
+/// Sums haversine distance across consecutive points, e.g. a session's
+/// sorted route — same math used for the live current-session odometer in
+/// TrackerProvider, applied here to a fixed list for historical sessions.
+double routeDistanceMeters(List<List<double>> latLngs) {
+  var total = 0.0;
+  for (var i = 1; i < latLngs.length; i++) {
+    total += haversineDistanceMeters(
+      latLngs[i - 1][0],
+      latLngs[i - 1][1],
+      latLngs[i][0],
+      latLngs[i][1],
+    );
+  }
+  return total;
+}
+
 String formatWorkingTime(double seconds) {
   final totalSecs = seconds.round();
   final hrs = totalSecs ~/ 3600;

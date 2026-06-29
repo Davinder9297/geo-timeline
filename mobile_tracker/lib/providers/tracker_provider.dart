@@ -3,8 +3,11 @@ import 'package:flutter/widgets.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'package:mobile_tracker/core/api_client.dart';
+import 'package:mobile_tracker/core/foreground_task_handler.dart';
+import 'package:mobile_tracker/core/gps_debug_log.dart';
 import 'package:mobile_tracker/core/config.dart';
 import 'package:mobile_tracker/core/storage_service.dart';
 import 'package:mobile_tracker/core/utils/geo_utils.dart';
@@ -20,6 +23,19 @@ import 'package:mobile_tracker/services/location_service.dart';
 import 'package:mobile_tracker/services/stats_service.dart';
 import 'package:mobile_tracker/services/timeline_service.dart';
 
+double breakSecondsFor(List<BreakWindow> breaks) {
+  var total = 0.0;
+  final now = DateTime.now();
+  for (final b in breaks) {
+    final start = DateTime.tryParse(b.startAt);
+    if (start == null) continue;
+    final end = b.endAt != null ? DateTime.tryParse(b.endAt!) : now;
+    if (end == null) continue;
+    total += end.difference(start).inSeconds;
+  }
+  return total;
+}
+
 enum TrackingState { idle, active, stopped }
 
 class LatLng {
@@ -28,11 +44,11 @@ class LatLng {
   const LatLng(this.lat, this.lng);
 }
 
-class _LastFix {
+class _AnchorFix {
   final double lat;
   final double lon;
   final double accuracyM;
-  _LastFix(this.lat, this.lon, this.accuracyM);
+  _AnchorFix(this.lat, this.lon, this.accuracyM);
 }
 
 /// Mirrors trackers/src/context/TrackerContext.tsx: auth, attendance
@@ -86,8 +102,8 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   int _retryBackoffMs = 1000;
   bool _isUploading = false;
   int _sequence = 0;
-  _LastFix? _lastFix;
-  LocationPointDto? _lastQueuedPoint;
+  _AnchorFix? _anchorFix;
+  _AnchorFix? _pendingFix;
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
 
   TrackerProvider() {
@@ -117,8 +133,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
       queue = savedQueue;
       _sequence = savedQueue.map((p) => p.sequenceNo).reduce((a, b) => a > b ? a : b) + 1;
       final last = savedQueue.last;
-      _lastFix = _LastFix(last.latitude, last.longitude, last.accuracyM);
-      _lastQueuedPoint = last;
+      _anchorFix = _AnchorFix(last.latitude, last.longitude, last.accuracyM);
     }
 
     final savedState = _storage!.loadTrackingState();
@@ -286,6 +301,9 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     } finally {
       loadingTimeline = false;
       notifyListeners();
+      if (selectedTimelineDate == _todayDateStatic()) {
+        await _refreshForegroundNotification();
+      }
     }
   }
 
@@ -335,25 +353,40 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
       return false;
     }
+
+    // "While in use" is enough to start, but background tracking needs
+    // "always" — ask for it once foreground access is already granted, which
+    // is what both Android and iOS expect (a single combined prompt is
+    // rejected by the OS on newer versions).
+    if (permission == LocationPermission.whileInUse) {
+      await Geolocator.requestPermission();
+    }
+
+    final notificationPermission = await FlutterForegroundTask.checkNotificationPermission();
+    if (notificationPermission != NotificationPermission.granted) {
+      await FlutterForegroundTask.requestNotificationPermission();
+    }
+
     return true;
   }
 
   Future<void> _beginGeoWatch() async {
     if (!await _ensureLocationPermission()) return;
+    await startForegroundTracking();
 
     trackingState = TrackingState.active;
     await _storage!.saveTrackingState('active');
     notifyListeners();
 
     if (queue.isEmpty) {
-      _lastFix = null;
-      _lastQueuedPoint = null;
+      _anchorFix = null;
+      _pendingFix = null;
     }
 
     await _positionSub?.cancel();
     _positionSub = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
+        accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: 0,
       ),
     ).listen(
@@ -365,19 +398,42 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     );
 
     _batchTimer?.cancel();
-    _batchTimer = Timer.periodic(AppConfig.batchInterval, (_) => _flushQueue(sendEmpty: true));
+    _batchTimer = Timer.periodic(AppConfig.batchInterval, (_) {
+      _flushQueue(sendEmpty: true);
+      _refreshForegroundNotification();
+    });
+    _refreshForegroundNotification();
+  }
+
+  Future<void> _refreshForegroundNotification() async {
+    final openSession = selectedAttendance?.sessions.isNotEmpty == true
+        ? selectedAttendance!.sessions.last
+        : null;
+    if (openSession == null || openSession.checkOutAt != null) return;
+
+    final checkIn = DateTime.parse(openSession.checkInAt);
+    final sessionSeconds = DateTime.now().difference(checkIn).inSeconds -
+        breakSecondsFor(openSession.breaks);
+
+    await updateForegroundNotification(
+      currentSessionTime: formatWorkingTime(sessionSeconds < 0 ? 0 : sessionSeconds),
+      currentSessionDistance: formatDistanceMeters(totalDistance),
+      totalTodayTime: formatWorkingTime(timeline?.totals?.workingSeconds ?? 0),
+      totalTodayDistance: formatDistanceMeters(timeline?.totals?.processedDistanceMeters ?? 0),
+    );
   }
 
   Future<void> _endGeoWatch() async {
     trackingState = TrackingState.idle;
     await _storage?.saveTrackingState('idle');
+    await stopForegroundTracking();
     await _positionSub?.cancel();
     _positionSub = null;
     _batchTimer?.cancel();
     _batchTimer = null;
     await _flushQueue();
-    _lastFix = null;
-    _lastQueuedPoint = null;
+    _anchorFix = null;
+    _pendingFix = null;
     notifyListeners();
   }
 
@@ -388,10 +444,16 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     final lat = position.latitude;
     final lon = position.longitude;
 
-    if (!_shouldAcceptPoint(lat, lon, accuracy)) return;
+    if (accuracy > AppConfig.maxAcceptableAccuracyMeters) {
+      GpsDebugLog.log(
+          'REJECT(accuracy) lat=$lat lon=$lon accuracy=${accuracy.toStringAsFixed(1)}m speed=${position.speed.toStringAsFixed(2)}');
+      return;
+    }
 
-    final previous = _lastFix;
-    _lastFix = _LastFix(lat, lon, accuracy);
+    currentLocation = LatLng(lat, lon);
+    notifyListeners();
+
+    if (!_confirmMovement(lat, lon, accuracy)) return;
 
     final batteryPercent = await _getBatteryPercent();
     final networkType = await _getNetworkType();
@@ -412,13 +474,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     );
     _sequence += 1;
 
-    if (previous != null) {
-      totalDistance += haversineDistanceMeters(previous.lat, previous.lon, lat, lon);
-    }
-
     queue = [...queue, point];
-    _lastQueuedPoint = point;
-    currentLocation = LatLng(lat, lon);
     await _storage!.saveQueue(queue);
     notifyListeners();
 
@@ -427,36 +483,62 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  /// Accuracy-aware jitter filter: a move only counts as real movement if
-  /// it exceeds both the base filter and the combined GPS uncertainty of
-  /// the two fixes being compared — otherwise normal jitter while
-  /// stationary (multipath/urban canyon error) gets counted as movement.
-  /// A single degraded fix can't permanently inflate the threshold because
-  /// accuracy is capped before use. Mirrors shouldAcceptPoint in
-  /// trackers/src/context/TrackerContext.tsx.
-  bool _shouldAcceptPoint(double lat, double lon, double accuracy) {
-    final last = _lastFix;
-    if (last == null) return true;
+  /// Stationary-anchor filter, replacing a plain point-to-point jitter
+  /// check. The flaw with comparing only consecutive fixes: a single GPS
+  /// bounce (multipath, momentary satellite-geometry shift) that happens to
+  /// exceed the accuracy-based threshold gets accepted as "movement"
+  /// outright, and over hours of sitting still, even a low per-fix chance
+  /// of that compounds into a creeping distance and stray off-position
+  /// points. Instead, this keeps a fixed "anchor" while stationary — a fix
+  /// outside the jitter radius only confirms real movement once a second
+  /// consecutive fix lands near the same new spot (not back near the
+  /// anchor, and not off in some other direction), which a one-off bounce
+  /// won't do. Only on confirmation does the anchor move and distance get
+  /// added; a single deviating fix is held as _pendingFix and discarded if
+  /// the next fix doesn't corroborate it.
+  bool _confirmMovement(double lat, double lon, double accuracy) {
+    final anchor = _anchorFix;
+    if (anchor == null) {
+      _anchorFix = _AnchorFix(lat, lon, accuracy);
+      GpsDebugLog.log(
+          'ANCHOR-INIT lat=$lat lon=$lon accuracy=${accuracy.toStringAsFixed(1)}m');
+      return true;
+    }
 
-    final distance = haversineDistanceMeters(last.lat, last.lon, lat, lon);
     final cappedAccuracy = accuracy.clamp(0, AppConfig.accuracyCapMeters);
-    final cappedLastAccuracy = last.accuracyM.clamp(0, AppConfig.accuracyCapMeters);
-    final effectiveThreshold = [
+    final cappedAnchorAccuracy = anchor.accuracyM.clamp(0, AppConfig.accuracyCapMeters);
+    final jitterRadius = [
       AppConfig.distanceFilterMeters,
       cappedAccuracy,
-      cappedLastAccuracy,
+      cappedAnchorAccuracy,
     ].reduce((a, b) => a > b ? a : b);
 
-    if (distance < effectiveThreshold) return false;
+    final distanceFromAnchor = haversineDistanceMeters(anchor.lat, anchor.lon, lat, lon);
+    final logPrefix = 'lat=$lat lon=$lon accuracy=${accuracy.toStringAsFixed(1)}m '
+        'distFromAnchor=${distanceFromAnchor.toStringAsFixed(1)}m jitterRadius=${jitterRadius.toStringAsFixed(1)}m '
+        'totalDistance=${totalDistance.toStringAsFixed(1)}m';
 
-    final lastQueued = _lastQueuedPoint;
-    if (lastQueued != null &&
-        lastQueued.latitude == lat &&
-        lastQueued.longitude == lon &&
-        lastQueued.accuracyM == accuracy) {
+    if (distanceFromAnchor < jitterRadius) {
+      // Back within jitter range of the anchor — settled again, drop any
+      // pending candidate from a previous bounce.
+      _pendingFix = null;
+      GpsDebugLog.log('JITTER(within radius) $logPrefix');
       return false;
     }
 
+    final pending = _pendingFix;
+    const confirmRadius = 8.0; // how close two fixes must be to agree on the same new spot
+    if (pending == null || haversineDistanceMeters(pending.lat, pending.lon, lat, lon) > confirmRadius) {
+      _pendingFix = _AnchorFix(lat, lon, accuracy);
+      GpsDebugLog.log('PENDING(new candidate, awaiting confirmation) $logPrefix');
+      return false;
+    }
+
+    final added = haversineDistanceMeters(anchor.lat, anchor.lon, lat, lon);
+    totalDistance += added;
+    _anchorFix = _AnchorFix(lat, lon, accuracy);
+    _pendingFix = null;
+    GpsDebugLog.log('CONFIRMED(+${added.toStringAsFixed(1)}m) $logPrefix');
     return true;
   }
 

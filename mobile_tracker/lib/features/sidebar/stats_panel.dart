@@ -45,7 +45,8 @@ class StatsPanel extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(formatWorkingTime(today.workingSeconds),
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)
+                      .merge(const TextStyle(fontFeatures: [FontFeature.tabularFigures()]))),
             ],
           ),
         ),
@@ -71,7 +72,8 @@ class StatsPanel extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(formatDistanceMeters(today.distanceMeters),
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)
+                      .merge(const TextStyle(fontFeatures: [FontFeature.tabularFigures()]))),
             ],
           ),
         ),
@@ -150,19 +152,24 @@ class _Bar extends StatelessWidget {
         Expanded(
           child: Align(
             alignment: Alignment.bottomCenter,
-            child: FractionallySizedBox(
-              heightFactor: heightFraction.clamp(0.02, 1.0),
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(4),
-                  gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: colors,
+            child: TweenAnimationBuilder<double>(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+              tween: Tween(begin: 0.02, end: heightFraction.clamp(0.02, 1.0)),
+              builder: (context, animatedHeight, _) => FractionallySizedBox(
+                heightFactor: animatedHeight,
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(4),
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: colors,
+                    ),
                   ),
-                ),
-                margin: const EdgeInsets.symmetric(horizontal: 1),
-              ).withOpacity(isToday ? 1 : 0.4),
+                  margin: const EdgeInsets.symmetric(horizontal: 1),
+                ).withOpacity(isToday ? 1 : 0.4),
+              ),
             ),
           ),
         ),

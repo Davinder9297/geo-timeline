@@ -82,6 +82,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 currentLocation: isToday ? tracker.currentLocation : null,
                 viewMode: _viewMode,
                 onViewModeChanged: (m) => setState(() => _viewMode = m),
+                onSelectSession: (id) => setState(() => _selectedSessionId = id),
               ),
               if (selectedSession != null)
                 Positioned(
@@ -105,8 +106,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(width: 8),
                         Text(
                           'Session ${sessionIdx + 1} · '
-                          '${DateFormat('h:mm a').format(DateTime.parse(selectedSession.checkInAt))} – '
-                          '${selectedSession.checkOutAt != null ? DateFormat('h:mm a').format(DateTime.parse(selectedSession.checkOutAt!)) : "now"}',
+                          '${DateFormat('h:mm a').format(DateTime.parse(selectedSession.checkInAt).toLocal())} – '
+                          '${selectedSession.checkOutAt != null ? DateFormat('h:mm a').format(DateTime.parse(selectedSession.checkOutAt!).toLocal()) : "now"}',
                           style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
                         ),
                       ],

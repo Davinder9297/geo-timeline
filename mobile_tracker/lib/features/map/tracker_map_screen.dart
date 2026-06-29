@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:mobile_tracker/core/utils/geo_utils.dart';
+import 'package:mobile_tracker/core/utils/marker_icons.dart';
 import 'package:mobile_tracker/models/timeline.dart';
 import 'package:mobile_tracker/providers/tracker_provider.dart' as tp;
 
@@ -13,6 +14,7 @@ class TrackerMapScreen extends StatefulWidget {
   final tp.LatLng? currentLocation;
   final MapViewMode viewMode;
   final ValueChanged<MapViewMode> onViewModeChanged;
+  final ValueChanged<String> onSelectSession;
 
   const TrackerMapScreen({
     super.key,
@@ -21,6 +23,7 @@ class TrackerMapScreen extends StatefulWidget {
     required this.currentLocation,
     required this.viewMode,
     required this.onViewModeChanged,
+    required this.onSelectSession,
   });
 
   @override
@@ -31,12 +34,26 @@ class _TrackerMapScreenState extends State<TrackerMapScreen> {
   final Completer<gmaps.GoogleMapController> _controller = Completer();
   static const gmaps.LatLng _defaultCenter = gmaps.LatLng(20.5937, 78.9629);
 
+  Set<gmaps.Marker> _markers = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _rebuildMarkers();
+  }
+
   @override
   void didUpdateWidget(TrackerMapScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.timeline != widget.timeline ||
         oldWidget.selectedSessionId != widget.selectedSessionId) {
       _fitToContent();
+    }
+    if (oldWidget.timeline != widget.timeline ||
+        oldWidget.selectedSessionId != widget.selectedSessionId ||
+        oldWidget.viewMode != widget.viewMode ||
+        oldWidget.currentLocation != widget.currentLocation) {
+      _rebuildMarkers();
     }
   }
 
@@ -85,24 +102,31 @@ class _TrackerMapScreenState extends State<TrackerMapScreen> {
       return polylines;
     }
 
+    // Always draw every session, in its own color — a session is
+    // "highlighted" (full opacity, thicker) when selected or when nothing is
+    // selected, and dimmed/thinner otherwise, instead of being hidden. This
+    // lets you compare a session's route against the rest of the day at a
+    // glance, then tap a session to pick out its line specifically.
     for (var i = 0; i < sessionOrder.length; i++) {
       final sessionId = sessionOrder[i];
-      if (widget.selectedSessionId != null && widget.selectedSessionId != sessionId) {
-        continue; // only draw the selected session, mirrors the dimmed/hidden behavior
-      }
       final path = _pathForSession(sessionId, sessionOrder);
       if (path.isEmpty) continue;
+      final isHighlighted = widget.selectedSessionId == null || widget.selectedSessionId == sessionId;
+      final baseColor = getSessionColor(i);
       polylines.add(gmaps.Polyline(
         polylineId: gmaps.PolylineId(sessionId),
         points: path,
-        color: getSessionColor(i),
-        width: 4,
+        color: isHighlighted ? baseColor : baseColor.withOpacity(0.3),
+        width: isHighlighted ? 4 : 2,
+        zIndex: isHighlighted ? 1 : 0,
+        consumeTapEvents: true,
+        onTap: () => widget.onSelectSession(sessionId),
       ));
     }
     return polylines;
   }
 
-  Set<gmaps.Marker> _buildMarkers() {
+  Future<void> _rebuildMarkers() async {
     final markers = <gmaps.Marker>{};
 
     if (widget.currentLocation != null) {
@@ -117,30 +141,26 @@ class _TrackerMapScreenState extends State<TrackerMapScreen> {
     if (widget.viewMode == MapViewMode.sequence) {
       final sessionOrder = _sessionOrder();
       for (final p in widget.timeline?.rawPoints ?? const <RawLocationPoint>[]) {
-        if (widget.selectedSessionId != null && widget.selectedSessionId != p.sessionId) continue;
         final idx = sessionOrder.indexOf(p.sessionId);
+        final isHighlighted = widget.selectedSessionId == null || widget.selectedSessionId == p.sessionId;
+        final color = getSessionColor(idx < 0 ? 0 : idx);
         markers.add(gmaps.Marker(
           markerId: gmaps.MarkerId('seq-${p.sessionId}-${p.sequenceNo}'),
           position: gmaps.LatLng(p.latitude, p.longitude),
-          icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(_hueForIndex(idx)),
+          icon: await NumberedMarkerIcons.get(
+            p.sequenceNo,
+            isHighlighted ? color : color.withOpacity(0.35),
+          ),
+          anchor: const Offset(0.5, 0.5),
+          zIndexInt: isHighlighted ? 1 : 0,
           infoWindow: gmaps.InfoWindow(title: 'Point #${p.sequenceNo}', snippet: p.capturedAt),
+          onTap: () => widget.onSelectSession(p.sessionId),
         ));
       }
     }
 
-    return markers;
-  }
-
-  double _hueForIndex(int idx) {
-    const hues = [
-      gmaps.BitmapDescriptor.hueBlue,
-      gmaps.BitmapDescriptor.hueViolet,
-      gmaps.BitmapDescriptor.hueGreen,
-      gmaps.BitmapDescriptor.hueOrange,
-      gmaps.BitmapDescriptor.hueRose,
-      gmaps.BitmapDescriptor.hueAzure,
-    ];
-    return hues[idx < 0 ? 0 : idx % hues.length];
+    if (!mounted) return;
+    setState(() => _markers = markers);
   }
 
   Future<void> _fitToContent() async {
@@ -203,7 +223,7 @@ class _TrackerMapScreenState extends State<TrackerMapScreen> {
             _fitToContent();
           },
           polylines: _buildPolylines(),
-          markers: _buildMarkers(),
+          markers: _markers,
           myLocationButtonEnabled: false,
           zoomControlsEnabled: false,
         ),

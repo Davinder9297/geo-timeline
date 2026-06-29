@@ -1,13 +1,10 @@
 /// Mirrors trackers/src/config.ts on the web tracker app — keep these two
 /// in sync if you tune one of them.
 class AppConfig {
-  /// Point this at your backend. On a physical Android device or an
-  /// emulator, "localhost" means the device itself, not your dev machine —
-  /// see README.md "Pointing at your backend" for the right value.
-  /// Currently set to this dev machine's Wi-Fi LAN IP (10.129.106.148) so a
-  /// physical phone on the same network can reach it — update this if your
-  /// machine's IP changes (e.g. after reconnecting to Wi-Fi).
-  static const String apiBaseUrl = 'http://10.129.106.148:3000/api/v1';
+  /// Point this at your backend. Currently set to the deployed Render
+  /// instance. For local dev against a LAN backend instead, see
+  /// README.md "Pointing at your backend".
+  static const String apiBaseUrl = 'https://geo-timeline-test.onrender.com/api/v1';
 
   static const Duration batchInterval = Duration(seconds: 30);
   static const int batchSize = 5;
@@ -23,6 +20,13 @@ class AppConfig {
   /// the jitter-filter threshold, so it can't permanently suppress later
   /// good fixes once signal recovers.
   static const double accuracyCapMeters = 50;
+
+  /// Fixes worse than this are dropped outright rather than queued — a
+  /// 40-50m-accuracy fix (common indoors/urban canyon) is not just jittery,
+  /// it's wrong, and recording it would put a real point on the map in the
+  /// wrong place. Typical outdoor phone GPS is 3-10m, so 20m still tolerates
+  /// normal degraded-but-usable signal without admitting garbage fixes.
+  static const double maxAcceptableAccuracyMeters = 20;
 
   static const Duration statsPollInterval = Duration(seconds: 20);
   static const Duration timelinePollInterval = Duration(seconds: 20);
